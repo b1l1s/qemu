@@ -700,6 +700,20 @@ static void arm946_initfn(Object *obj)
     cpu->reset_sctlr = 0x00000078;
 }
 
+static void arm946n_initfn(Object *obj)
+{
+	ARMCPU *cpu = ARM_CPU(obj);
+
+	cpu->dtb_compatible = "arm,arm946";
+	set_feature(&cpu->env, ARM_FEATURE_V5);
+	set_feature(&cpu->env, ARM_FEATURE_MPU);
+	set_feature(&cpu->env, ARM_FEATURE_NINTENDO9);
+	set_feature(&cpu->env, ARM_FEATURE_DUMMY_C15_REGS);
+	cpu->midr = 0x41059461;
+	cpu->ctr = 0x0f004006;
+	cpu->reset_sctlr = 0x00000078;
+}
+
 static void arm1026_initfn(Object *obj)
 {
     ARMCPU *cpu = ARM_CPU(obj);
@@ -1338,6 +1352,7 @@ static const ARMCPUInfo arm_cpus[] = {
     { .name = "pxa270-b1",   .initfn = pxa270b1_initfn },
     { .name = "pxa270-c0",   .initfn = pxa270c0_initfn },
     { .name = "pxa270-c5",   .initfn = pxa270c5_initfn },
+	{ .name = "arm946n",     .initfn = arm946n_initfn },
 #ifdef CONFIG_USER_ONLY
     { .name = "any",         .initfn = arm_any_initfn },
 #endif

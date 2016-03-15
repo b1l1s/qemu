@@ -152,6 +152,16 @@ static void n3ds_init(MachineState *machine)
 		fclose(bootrom9);
 	}
 	
+	int i;
+	qemu_irq pic[32];
+	DeviceState* dev = sysbus_create_simple("n3ds-pic", 0x10001000, qdev_get_gpio_in(DEVICE(cpu), ARM_CPU_IRQ));
+	for (i = 0; i < 32; i++)
+	{
+		pic[i] = qdev_get_gpio_in(dev, i);
+	}
+	
+	sysbus_create_varargs("n3ds-pit", 0x10003000, pic[8], pic[9], pic[10], pic[11], NULL);
+	
 	sysbus_create_simple("n3ds-sdmmc", 0x10006000, NULL);
 	sysbus_create_simple("n3ds-lcdfb", 0x10400000, NULL);
 	sysbus_create_simple("n3ds-hid", 0x10146000, NULL);

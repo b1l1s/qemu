@@ -313,22 +313,13 @@ static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 		if(size == 4)
 			*(uint32_t*)&s->ctr[offset - 0x20] = value;
 		break;
-	case 0x100: // AES_KEYFIFO
-	case 0x101:
-	case 0x102:
-	case 0x103:
+	case 0x100 ... 0x103: // AES_KEYFIFO
 		ctr9_aes_keyfifo_write(s, 0, value, size);
 		break;
-	case 0x104: // AES_KEYXFIFO
-	case 0x105:
-	case 0x106:
-	case 0x107:
+	case 0x104 ... 0x107: // AES_KEYXFIFO
 		ctr9_aes_keyfifo_write(s, 1, value, size);
 		break;
-	case 0x108: // AES_KEYYFIFO
-	case 0x109:
-	case 0x10A:
-	case 0x10B:
+	case 0x108 ... 0x10B: // AES_KEYYFIFO
 		ctr9_aes_keyfifo_write(s, 2, value, size);
 		break;
 	default:

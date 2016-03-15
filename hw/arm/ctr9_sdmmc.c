@@ -29,6 +29,11 @@
 #define EMMC_FIFO		0x30
 #define EMMC_RESET		0xE0
 
+#define EMMC_DATACTL32			0x100
+#define EMMC_SDBLKLEN32			0x104
+#define EMMC_SDBLKCOUNT32		0x108
+#define EMMC_SDFIFO32			0x10C
+
 #define TMIO_STAT0_CMDRESPEND    0x0001
 #define TMIO_STAT0_DATAEND       0x0004
 #define TMIO_STAT0_CARD_REMOVE   0x0008
@@ -66,6 +71,7 @@ typedef struct ctr9_sdmmc_device
 	uint32_t io_block_count;
 	
 	uint16_t status[2];
+	uint32_t ctl32;
 	
 	uint32_t io_ptr;
 	
@@ -113,10 +119,13 @@ static void ctr9_sdmmc_fileread(ctr9_sdmmc_state* s)
 		card->io_block_count--;
 		
 		card->status[1] |= TMIO_STAT1_RXRDY;
+		card->ctl32 = 0x100; // TODO
 	}
 	else
 	{
 		card->status[0] = TMIO_STAT0_CMDRESPEND | TMIO_STAT0_DATAEND;
+		card->ctl32 = 0; // TODO
+
 		card->state = EMMC_STATE_READY;
 	}
 }
@@ -141,11 +150,15 @@ static void ctr9_sdmmc_filewrite(ctr9_sdmmc_state* s)
 		card->io_block_count--;
 		
 		if(card->io_block_count > 0)
+		{
 			card->status[1] |= TMIO_STAT1_TXRQ;
+			card->ctl32 = 0x100; // TODO
+		}
 		else
 		{
 			card->status[0] = TMIO_STAT0_CMDRESPEND | TMIO_STAT0_DATAEND;
 			card->status[1] = 0;
+			card->ctl32 = 0; // TODO
 			
 			card->state = EMMC_STATE_READY;
 		}
@@ -182,8 +195,6 @@ static uint64_t ctr9_sdmmc_read(void* opaque, hwaddr offset, unsigned size)
 		return 0x0007;
 	case 0x0D8:
 		return 0x1012;
-	case 0x100:
-		return 0x0002;
 	case EMMC_RESP0:
 		return s->ret[0] & 0xFFFF;
 	case EMMC_RESP1:
@@ -200,11 +211,17 @@ static uint64_t ctr9_sdmmc_read(void* opaque, hwaddr offset, unsigned size)
 		return s->ret[3] & 0xFFFF;
 	case EMMC_RESP7:
 		return s->ret[3] >> 16;
+	case EMMC_SDFIFO32:
 	case EMMC_FIFO:
 		if(card->state == EMMC_STATE_READ && card->ptr < card->block_len)
 		{
-			uint16_t res = card->buffer[card->ptr] | card->buffer[card->ptr + 1] << 8;
-			card->ptr += 2;
+			uint32_t res = 0;
+			if(size == 2)
+				res = *(uint16_t*)&card->buffer[card->ptr];
+			else if(size == 4)
+				res = *(uint32_t*)&card->buffer[card->ptr];
+
+			card->ptr += size;
 			if(card->ptr == card->block_len)
 			{
 				// Refill buffer
@@ -213,6 +230,8 @@ static uint64_t ctr9_sdmmc_read(void* opaque, hwaddr offset, unsigned size)
 			return res;
 		}
 		return 0;
+	case EMMC_DATACTL32:
+		return card->ctl32;
 	default:
 		return 0;
 	}
@@ -306,6 +325,7 @@ static void ctr9_sdmmc_write(void *opaque, hwaddr offset, uint64_t value, unsign
 		card->state = EMMC_STATE_READY;
 		break;
 	case EMMC_BLKCOUNT:
+	case EMMC_SDBLKCOUNT32:
 		card->io_block_count = value;
 		break;
 	case EMMC_PORTSEL:
@@ -325,24 +345,34 @@ static void ctr9_sdmmc_write(void *opaque, hwaddr offset, uint64_t value, unsign
 		break;
 	case EMMC_OPT:
 		break;
-	case EMMC_FIFO:
-		if(card->state == EMMC_STATE_WRITE && card->ptr < card->block_len)
-		{
-			card->buffer[card->ptr] = value & 0xFF;
-			card->buffer[card->ptr + 1] = value >> 8;
-			card->ptr += 2;
-			if(card->ptr == card->block_len)
-			{
-				// Flush buffer
-				ctr9_sdmmc_filewrite(s);
-			}
-		}
-		break;
 	case EMMC_RESET:
 		break;
 	case 0x0D8:
 		break;
-	case 0x100:
+	case EMMC_DATACTL32:
+		break;
+	case EMMC_SDBLKLEN32:
+		card->block_len = value;
+		break;
+	case EMMC_SDFIFO32:
+	case EMMC_FIFO:
+		if(card->state == EMMC_STATE_WRITE && card->ptr < card->block_len)
+		{
+			if(size == 2 || size == 4)
+			{
+				if(size == 2)
+					*(uint16_t*)&card->buffer[card->ptr] = value;
+				else
+					*(uint32_t*)&card->buffer[card->ptr] = value;
+
+				card->ptr += size;
+				if(card->ptr == card->block_len)
+				{
+					// Flush buffer
+					ctr9_sdmmc_filewrite(s);
+				}
+			}
+		}
 		break;
 	default:
 		break;

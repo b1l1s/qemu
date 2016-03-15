@@ -1,10 +1,27 @@
 #include "hw/sysbus.h"
 #include "hw/arm/arm.h"
 #include "hw/devices.h"
+#include "ctr9_common.h"
+
+#ifdef CONFIG_GNUTLS_HASH
+#include <gnutls/gnutls.h>
+#include <gnutls/crypto.h>
+
+static const uint32_t sha_mode_map[] = {GNUTLS_DIG_SHA256, GNUTLS_DIG_SHA224, GNUTLS_DIG_SHA1};
+#else
+typedef void* gnutls_hash_hd_t;
+int gnutls_hash_init(gnutls_hash_hd_t* dig, uint32_t alg) {return 0;}
+int gnutls_hash(gnutls_hash_hd_t handle, const void *text, size_t textlen) {return 0;}
+void gnutls_hash_deinit(gnutls_hash_hd_t handle, void *digest) {}
+
+static const uint32_t sha_mode_map[] = {0, 0, 0};
+#endif
 
 #define TYPE_CTR9_SHA "ctr9-sha"
 #define CTR9_SHA(obj) \
     OBJECT_CHECK(ctr9_sha_state, (obj), TYPE_CTR9_SHA)
+
+
 
 typedef struct ctr9_sha_state {
 	SysBusDevice parent_obj;
@@ -21,6 +38,7 @@ typedef struct ctr9_sha_state {
 	uint8_t hash[0x20];
 	
 	ctr9_iofifo in_fifo;
+	gnutls_hash_hd_t dig;
 } ctr9_sha_state;
 
 static uint64_t ctr9_sha_read(void* opaque, hwaddr offset, unsigned size)
@@ -43,11 +61,11 @@ static uint64_t ctr9_sha_read(void* opaque, hwaddr offset, unsigned size)
 	if(offset >= 0x40 && offset < 0x60)
 	{
 		if(size == 1)
-			res = hash[offset - 0x40];
+			res = s->hash[offset - 0x40];
 		if(size == 2)
-			res = *(uint16_t*)&hash[offset - 0x40];
-		if(size = 4)
-			res = *(uint32_t*)&hash[offset - 0x40];
+			res = *(uint16_t*)&s->hash[offset - 0x40];
+		if(size == 4)
+			res = *(uint32_t*)&s->hash[offset - 0x40];
 	}
 	
 	return res;
@@ -59,11 +77,46 @@ static void ctr9_sha_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 	
 	switch(offset)
 	{
-	case 0:
+	case 0x00: // REG_SHA_CNT
 		s->start = value & 1;
 		s->final = (value >> 1) & 1;
 		s->output_endian = (value >> 3) & 1;
 		s->mode = (value >> 4) & 3;
+		
+		if(s->start)
+		{
+			ctr9_fifo_reset(&s->in_fifo);
+
+			gnutls_hash_init(&s->dig, sha_mode_map[s->mode]);
+			s->start = 0;
+			s->block_count = 0;
+		}
+
+		if(s->final)
+		{
+			uint32_t fifo_len = ctr9_fifo_len(&s->in_fifo);
+			if(fifo_len)
+			{
+				s->block_count += fifo_len;
+				// We have some leftover data
+				gnutls_hash(s->dig, s->in_fifo.buffer, fifo_len);
+				ctr9_fifo_reset(&s->in_fifo);
+			}
+
+			printf("final round\n");
+			gnutls_hash_deinit(s->dig, s->hash);
+			s->final = 0;
+		}
+		break;
+	case 0x80 ... 0x83: // REG_SHA_INFIFO
+		ctr9_fifo_push(&s->in_fifo, value, size);
+		if(ctr9_fifo_len(&s->in_fifo) == 128)
+		{
+			s->block_count += 128;
+
+			gnutls_hash(s->dig, s->in_fifo.buffer, 128);
+			ctr9_fifo_reset(&s->in_fifo);
+		}
 		break;
 	default:
 		break;
@@ -90,7 +143,7 @@ static int ctr9_sha_init(SysBusDevice *sbd)
 	s->output_endian = 1;
 	s->mode = 0;
 	
-	memset(&s->wr_fifo, 0, sizeof(s->wr_fifo));
+	ctr9_fifo_reset(&s->in_fifo);
 
 	return 0;
 }

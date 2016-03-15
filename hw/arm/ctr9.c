@@ -166,6 +166,7 @@ static void ctr9_init(MachineState *machine)
 	sysbus_create_simple("ctr9-lcdfb", 0x10400000, NULL);
 	sysbus_create_simple("ctr9-hid", 0x10146000, NULL);
 	sysbus_create_simple("ctr9-aes", 0x10009000, NULL);
+	sysbus_create_simple("ctr9-sha", 0x1000A000, NULL);
 	
 	//DeviceState *dev = qdev_create(NULL, "fake11");
 	memory_region_init_io(&fake11_state.iomem, NULL, &ctr9_fake11_ops, &fake11_state, "fake11", 4);

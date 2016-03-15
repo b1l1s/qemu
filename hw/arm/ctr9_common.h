@@ -10,6 +10,7 @@ typedef struct ctr9_iofifo
 } ctr9_iofifo;
 
 // WARNING The fifo functions below only work with buffers with power of two sizes
+void ctr9_fifo_reset(ctr9_iofifo* fifo);
 uint32_t ctr9_fifo_len(const ctr9_iofifo* fifo);
-void ctr9_fifo_push(ctr9_iofifo* fifo, uint32_t val);
+void ctr9_fifo_push(ctr9_iofifo* fifo, uint32_t val, uint32_t size);
 uint32_t ctr9_fifo_pop(ctr9_iofifo* fifo);

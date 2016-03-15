@@ -282,12 +282,12 @@ static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 		// TODO currently passthrough, we need a proper one
 		if(s->block_count)
 		{
-			ctr9_fifo_push(&s->wr_fifo, value);
+			ctr9_fifo_push(&s->wr_fifo, value, 4);
 			if(ctr9_fifo_len(&s->wr_fifo) == 0x10)
 			{
 				int i;
 				for(i = 0; i < 4; ++i)
-					ctr9_fifo_push(&s->rd_fifo, ctr9_fifo_pop(&s->wr_fifo));
+					ctr9_fifo_push(&s->rd_fifo, ctr9_fifo_pop(&s->wr_fifo), 4);
 				
 				s->block_count -= 1;
 				if(s->block_count == 0)

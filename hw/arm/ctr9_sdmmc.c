@@ -5,7 +5,7 @@
 #include "hw/sd.h"
 #include "hw/boards.h"
 
-#define TYPE_N3DS_SDMMC "n3ds-sdmmc"
+#define TYPE_CTR9_SDMMC "ctr9-sdmmc"
 
 #define EMMC_CMD		0x00
 #define EMMC_PORTSEL	0x02
@@ -55,7 +55,7 @@
 #define EMMC_STATE_READ 1
 #define EMMC_STATE_WRITE 2
 
-typedef struct n3ds_sdmmc_device
+typedef struct ctr9_sdmmc_device
 {
 	uint32_t cid[4];
 	uint32_t csd[4];
@@ -73,9 +73,9 @@ typedef struct n3ds_sdmmc_device
 	uint32_t ptr;
 	
 	FILE* file;
-} n3ds_sdmmc_device;
+} ctr9_sdmmc_device;
 
-typedef struct n3ds_sdmmc_state
+typedef struct ctr9_sdmmc_state
 {
 	SysBusDevice parent_obj;
 	MemoryRegion iomem;
@@ -83,7 +83,7 @@ typedef struct n3ds_sdmmc_state
 	SDState *card;
 	int enabled;
 	
-	n3ds_sdmmc_device cards[2];
+	ctr9_sdmmc_device cards[2];
 	
 	int selected;
 	
@@ -91,11 +91,11 @@ typedef struct n3ds_sdmmc_state
 	uint16_t cmdarg1;
 	
 	uint32_t ret[4];
-} n3ds_sdmmc_state;
+} ctr9_sdmmc_state;
 
-static void n3ds_sdmmc_fileread(n3ds_sdmmc_state* s)
+static void ctr9_sdmmc_fileread(ctr9_sdmmc_state* s)
 {
-	n3ds_sdmmc_device* card = &s->cards[s->selected];
+	ctr9_sdmmc_device* card = &s->cards[s->selected];
 	
 	if(card->io_block_count >= 1)
 	{
@@ -105,7 +105,7 @@ static void n3ds_sdmmc_fileread(n3ds_sdmmc_state* s)
 			fread(card->buffer, card->block_len, 1, card->file);
 		}
 		
-		printf("n3ds_sdmmc_fileread : %08X %08X\n", card->io_ptr, card->io_block_count);
+		printf("ctr9_sdmmc_fileread : %08X %08X\n", card->io_ptr, card->io_block_count);
 		
 		card->ptr = 0;
 		
@@ -121,9 +121,9 @@ static void n3ds_sdmmc_fileread(n3ds_sdmmc_state* s)
 	}
 }
 
-static void n3ds_sdmmc_filewrite(n3ds_sdmmc_state* s)
+static void ctr9_sdmmc_filewrite(ctr9_sdmmc_state* s)
 {
-	n3ds_sdmmc_device* card = &s->cards[s->selected];
+	ctr9_sdmmc_device* card = &s->cards[s->selected];
 	
 	if(card->io_block_count >= 1)
 	{
@@ -133,7 +133,7 @@ static void n3ds_sdmmc_filewrite(n3ds_sdmmc_state* s)
 			fwrite(card->buffer, card->block_len, 1, card->file);
 		}
 		
-		printf("n3ds_sdmmc_filewrite : %08X %08X\n", card->io_ptr, card->io_block_count);
+		printf("ctr9_sdmmc_filewrite : %08X %08X\n", card->io_ptr, card->io_block_count);
 		
 		card->ptr = 0;
 		
@@ -159,11 +159,11 @@ static void n3ds_sdmmc_filewrite(n3ds_sdmmc_state* s)
 	}
 }
 
-static uint64_t n3ds_sdmmc_read(void* opaque, hwaddr offset, unsigned size)
+static uint64_t ctr9_sdmmc_read(void* opaque, hwaddr offset, unsigned size)
 {
-	//printf("n3ds_sdmmc_read %x\n", offset);
-	n3ds_sdmmc_state* s = (n3ds_sdmmc_state*)opaque;
-	n3ds_sdmmc_device* card = &s->cards[s->selected];
+	//printf("ctr9_sdmmc_read %x\n", offset);
+	ctr9_sdmmc_state* s = (ctr9_sdmmc_state*)opaque;
+	ctr9_sdmmc_device* card = &s->cards[s->selected];
 	switch(offset)
 	{
 	case EMMC_PORTSEL:
@@ -208,7 +208,7 @@ static uint64_t n3ds_sdmmc_read(void* opaque, hwaddr offset, unsigned size)
 			if(card->ptr == card->block_len)
 			{
 				// Refill buffer
-				n3ds_sdmmc_fileread(s);
+				ctr9_sdmmc_fileread(s);
 			}
 			return res;
 		}
@@ -221,11 +221,11 @@ static uint64_t n3ds_sdmmc_read(void* opaque, hwaddr offset, unsigned size)
 }
 
 
-static void n3ds_sdmmc_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
+static void ctr9_sdmmc_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
 {
-	//printf("n3ds_sdmmc_write 0x%03llX 0x%08llX 0x%X\n", offset, value, size);
-	n3ds_sdmmc_state* s = (n3ds_sdmmc_state*)opaque;
-	n3ds_sdmmc_device* card = &s->cards[s->selected];
+	//printf("ctr9_sdmmc_write 0x%03llX 0x%08llX 0x%X\n", offset, value, size);
+	ctr9_sdmmc_state* s = (ctr9_sdmmc_state*)opaque;
+	ctr9_sdmmc_device* card = &s->cards[s->selected];
 
 	switch(offset)
 	{
@@ -276,7 +276,7 @@ static void n3ds_sdmmc_write(void *opaque, hwaddr offset, uint64_t value, unsign
 			case 0x12: // READ_MULTIPLE_BLOCK
 				card->io_ptr = s->cmdarg0 | (s->cmdarg1 << 16);
 				card->state = EMMC_STATE_READ;
-				n3ds_sdmmc_fileread(s);
+				ctr9_sdmmc_fileread(s);
 				break;
 			case 0x19: // WRITE_MULTIPLE_BLOCK
 				card->ptr = 0;
@@ -334,7 +334,7 @@ static void n3ds_sdmmc_write(void *opaque, hwaddr offset, uint64_t value, unsign
 			if(card->ptr == card->block_len)
 			{
 				// Flush buffer
-				n3ds_sdmmc_filewrite(s);
+				ctr9_sdmmc_filewrite(s);
 			}
 		}
 		break;
@@ -349,17 +349,17 @@ static void n3ds_sdmmc_write(void *opaque, hwaddr offset, uint64_t value, unsign
 	}
 }
 
-static const MemoryRegionOps n3ds_sdmmc_ops =
+static const MemoryRegionOps ctr9_sdmmc_ops =
 {
-	.read = n3ds_sdmmc_read,
-	.write = n3ds_sdmmc_write,
+	.read = ctr9_sdmmc_read,
+	.write = ctr9_sdmmc_write,
 	.endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static int n3ds_sdmmc_init(SysBusDevice* sbd)
+static int ctr9_sdmmc_init(SysBusDevice* sbd)
 {
 	DeviceState* dev = DEVICE(sbd);
-	n3ds_sdmmc_state* s = OBJECT_CHECK(n3ds_sdmmc_state, dev, TYPE_N3DS_SDMMC);
+	ctr9_sdmmc_state* s = OBJECT_CHECK(ctr9_sdmmc_state, dev, TYPE_CTR9_SDMMC);
 	
 	/*
 	TODO: use the sd backend instead of emulating manually
@@ -368,7 +368,7 @@ static int n3ds_sdmmc_init(SysBusDevice* sbd)
 	s->card = sd_init(blk, false);
 	if(s->card == NULL)
 	{
-		printf("n3ds_sdmmc_init sd_init failed\n");
+		printf("ctr9_sdmmc_init sd_init failed\n");
 		return -1;
 	}
 	
@@ -413,30 +413,30 @@ static int n3ds_sdmmc_init(SysBusDevice* sbd)
 		printf("Error opening 3ds-data/nand.bin\n");
 	}
 	
-	memory_region_init_io(&s->iomem, OBJECT(s), &n3ds_sdmmc_ops, s, "n3ds-sdmmc", 0x200);
+	memory_region_init_io(&s->iomem, OBJECT(s), &ctr9_sdmmc_ops, s, "ctr9-sdmmc", 0x200);
 	sysbus_init_mmio(sbd, &s->iomem);
 	return 0;
 }
 
-static void n3ds_sdmmc_class_init(ObjectClass *klass, void *data)
+static void ctr9_sdmmc_class_init(ObjectClass *klass, void *data)
 {
 	SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
-	k->init = n3ds_sdmmc_init;
+	k->init = ctr9_sdmmc_init;
 	
 	//DeviceClass *dc = DEVICE_CLASS(klass);
 	//dc->vmsd = &vmstate_vpb_sic;
 }
 
-static const TypeInfo n3ds_sdmmc_info = {
-	.name          = TYPE_N3DS_SDMMC,
+static const TypeInfo ctr9_sdmmc_info = {
+	.name          = TYPE_CTR9_SDMMC,
 	.parent        = TYPE_SYS_BUS_DEVICE,
-	.instance_size = sizeof(n3ds_sdmmc_state),
-	.class_init    = n3ds_sdmmc_class_init,
+	.instance_size = sizeof(ctr9_sdmmc_state),
+	.class_init    = ctr9_sdmmc_class_init,
 };
 
-static void n3ds_register_types(void)
+static void ctr9_register_types(void)
 {
-	type_register_static(&n3ds_sdmmc_info);
+	type_register_static(&ctr9_sdmmc_info);
 }
 
-type_init(n3ds_register_types)
+type_init(ctr9_register_types)

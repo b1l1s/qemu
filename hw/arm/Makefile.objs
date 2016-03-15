@@ -6,7 +6,7 @@ obj-y += tosa.o versatilepb.o vexpress.o virt.o xilinx_zynq.o z2.o
 obj-$(CONFIG_ACPI) += virt-acpi-build.o
 obj-y += netduino2.o
 obj-y += sysbus-fdt.o
-obj-y += n3ds.o n3ds_common.o n3ds_sdmmc.o n3ds_lcd.o n3ds_hid.o n3ds_aes.o n3ds_pic.o n3ds_pit.o
+obj-y += ctr9.o ctr9_common.o ctr9_sdmmc.o ctr9_lcd.o ctr9_hid.o ctr9_aes.o ctr9_pic.o ctr9_pit.o
 
 obj-y += armv7m.o exynos4210.o pxa2xx.o pxa2xx_gpio.o pxa2xx_pic.o
 obj-$(CONFIG_DIGIC) += digic.o

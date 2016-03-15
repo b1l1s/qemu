@@ -1,11 +1,11 @@
 #include "hw/sysbus.h"
 #include "hw/arm/arm.h"
 #include "hw/devices.h"
-#include "n3ds_common.h"
+#include "ctr9_common.h"
 
-#define TYPE_N3DS_AES "n3ds-aes"
-#define N3DS_AES(obj) \
-    OBJECT_CHECK(n3ds_aes_state, (obj), TYPE_N3DS_AES)
+#define TYPE_CTR9_AES "ctr9-aes"
+#define CTR9_AES(obj) \
+    OBJECT_CHECK(ctr9_aes_state, (obj), TYPE_CTR9_AES)
 
 #define AES_CCM_DECRYPT_MODE	(0u << 27)
 #define AES_CCM_ENCRYPT_MODE	(1u << 27)
@@ -35,23 +35,23 @@
 #define AES_OUTPUT_NORMAL		(AES_CNT_OUTPUT_ORDER)
 #define AES_OUTPUT_REVERSED		0
 
-typedef struct n3ds_aes_keyslot
+typedef struct ctr9_aes_keyslot
 {
 	uint8_t keys[0x3][0x10];
-} n3ds_aes_keyslot;
+} ctr9_aes_keyslot;
 
-typedef struct n3ds_aes_keyfifo
+typedef struct ctr9_aes_keyfifo
 {
 	uint8_t key_buffer[0x10];
 	uint8_t key_buffer_ptr;
-} n3ds_aes_keyfifo;
+} ctr9_aes_keyfifo;
 
-typedef struct n3ds_aes_state {
+typedef struct ctr9_aes_state {
 	SysBusDevice parent_obj;
 
 	MemoryRegion iomem;
 	
-	n3ds_aes_keyslot keyslots[0x40];
+	ctr9_aes_keyslot keyslots[0x40];
 	
 	uint8_t output_endian;
 	uint8_t input_endian;
@@ -64,8 +64,8 @@ typedef struct n3ds_aes_state {
 	
 	uint32_t block_count;
 	
-	n3ds_iofifo wr_fifo;
-	n3ds_iofifo rd_fifo;
+	ctr9_iofifo wr_fifo;
+	ctr9_iofifo rd_fifo;
 	
 	uint8_t keysel;
 	uint8_t active_key[0x10];
@@ -76,25 +76,25 @@ typedef struct n3ds_aes_state {
 	
 	uint8_t ctr[0x10];
 	
-	n3ds_aes_keyfifo keyfifos[0x3];
-} n3ds_aes_state;
+	ctr9_aes_keyfifo keyfifos[0x3];
+} ctr9_aes_state;
 
-static uint64_t n3ds_aes_read(void* opaque, hwaddr offset, unsigned size)
+static uint64_t ctr9_aes_read(void* opaque, hwaddr offset, unsigned size)
 {
-	n3ds_aes_state* s = (n3ds_aes_state*)opaque;
+	ctr9_aes_state* s = (ctr9_aes_state*)opaque;
 	
 	uint64_t res = 0;
 	switch(offset)
 	{
 	case 0x00: // AES_CNT
-		res = (n3ds_fifo_len(&s->rd_fifo) / 4) << 5 | (n3ds_fifo_len(&s->wr_fifo) / 4);
+		res = (ctr9_fifo_len(&s->rd_fifo) / 4) << 5 | (ctr9_fifo_len(&s->wr_fifo) / 4);
 		res |= (s->input_order << 3 | s->output_order << 2 | s->input_endian << 1 | s->output_endian) << 22;
 		res |= s->mode << 27;
 		res |= s->interrupt << 30;
 		res |= s->start << 31;
 		break;
 	case 0x0C: // AES_RDFIFO
-		res = n3ds_fifo_pop(&s->rd_fifo);
+		res = ctr9_fifo_pop(&s->rd_fifo);
 		break;
 	case 0x10: // AES_KEYSEL
 		res = s->keysel;
@@ -174,7 +174,7 @@ static void bswap_128(uint8_t* value)
 	v32[2] = __builtin_bswap32(temp);
 }
 
-static void n3ds_aes_keyfifo_scramble(n3ds_aes_state* s)
+static void ctr9_aes_keyfifo_scramble(ctr9_aes_state* s)
 {
 	// 3DS scrambler constant, little endian, reverse word order
 	uint8_t C_CTR[0x10] = {
@@ -223,7 +223,7 @@ static void n3ds_aes_keyfifo_scramble(n3ds_aes_state* s)
 	memcpy(target_key, key, 0x10);
 }
 
-static void n3ds_aes_keyfifo_write(n3ds_aes_state* s, int key_type, uint32_t value, uint32_t size)
+static void ctr9_aes_keyfifo_write(ctr9_aes_state* s, int key_type, uint32_t value, uint32_t size)
 {
 	if(size == 0x1)
 		value |= value << 8 | value << 16 | value << 24;
@@ -253,15 +253,15 @@ static void n3ds_aes_keyfifo_write(n3ds_aes_state* s, int key_type, uint32_t val
 			memcpy(target_key, key_buffer, 0x10);
 		
 		if(key_type == 2)
-			n3ds_aes_keyfifo_scramble(s);
+			ctr9_aes_keyfifo_scramble(s);
 		
 		*key_buffer_ptr = 0;
 	}
 }
 
-static void n3ds_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
+static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
 {
-	n3ds_aes_state* s = (n3ds_aes_state*)opaque;
+	ctr9_aes_state* s = (ctr9_aes_state*)opaque;
 	
 	switch(offset)
 	{
@@ -282,12 +282,12 @@ static void n3ds_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 		// TODO currently passthrough, we need a proper one
 		if(s->block_count)
 		{
-			n3ds_fifo_push(&s->wr_fifo, value);
-			if(n3ds_fifo_len(&s->wr_fifo) == 0x10)
+			ctr9_fifo_push(&s->wr_fifo, value);
+			if(ctr9_fifo_len(&s->wr_fifo) == 0x10)
 			{
 				int i;
 				for(i = 0; i < 4; ++i)
-					n3ds_fifo_push(&s->rd_fifo, n3ds_fifo_pop(&s->wr_fifo));
+					ctr9_fifo_push(&s->rd_fifo, ctr9_fifo_pop(&s->wr_fifo));
 				
 				s->block_count -= 1;
 				if(s->block_count == 0)
@@ -317,38 +317,38 @@ static void n3ds_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 	case 0x101:
 	case 0x102:
 	case 0x103:
-		n3ds_aes_keyfifo_write(s, 0, value, size);
+		ctr9_aes_keyfifo_write(s, 0, value, size);
 		break;
 	case 0x104: // AES_KEYXFIFO
 	case 0x105:
 	case 0x106:
 	case 0x107:
-		n3ds_aes_keyfifo_write(s, 1, value, size);
+		ctr9_aes_keyfifo_write(s, 1, value, size);
 		break;
 	case 0x108: // AES_KEYYFIFO
 	case 0x109:
 	case 0x10A:
 	case 0x10B:
-		n3ds_aes_keyfifo_write(s, 2, value, size);
+		ctr9_aes_keyfifo_write(s, 2, value, size);
 		break;
 	default:
 		break;
 	}
 }
 
-static const MemoryRegionOps n3ds_aes_ops =
+static const MemoryRegionOps ctr9_aes_ops =
 {
-	.read = n3ds_aes_read,
-	.write = n3ds_aes_write,
+	.read = ctr9_aes_read,
+	.write = ctr9_aes_write,
 	.endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static int n3ds_aes_init(SysBusDevice *sbd)
+static int ctr9_aes_init(SysBusDevice *sbd)
 {
 	DeviceState *dev = DEVICE(sbd);
-	n3ds_aes_state *s = N3DS_AES(dev);
+	ctr9_aes_state *s = CTR9_AES(dev);
 
-	memory_region_init_io(&s->iomem, OBJECT(s), &n3ds_aes_ops, s, "n3ds-aes", 0x200);
+	memory_region_init_io(&s->iomem, OBJECT(s), &ctr9_aes_ops, s, "ctr9-aes", 0x200);
 	sysbus_init_mmio(sbd, &s->iomem);
 	
 	memset(s->keyslots, 0, sizeof(s->keyslots));
@@ -378,8 +378,8 @@ static int n3ds_aes_init(SysBusDevice *sbd)
 	return 0;
 }
 
-static const VMStateDescription n3ds_aes_vmsd = {
-	.name = "n3ds-aes",
+static const VMStateDescription ctr9_aes_vmsd = {
+	.name = "ctr9-aes",
 	.version_id = 1,
 	.minimum_version_id = 1,
 	.fields = (VMStateField[]) {
@@ -387,25 +387,25 @@ static const VMStateDescription n3ds_aes_vmsd = {
 	}
 };
 
-static void n3ds_aes_class_init(ObjectClass *klass, void *data)
+static void ctr9_aes_class_init(ObjectClass *klass, void *data)
 {
 	DeviceClass *dc = DEVICE_CLASS(klass);
 	SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
-	k->init = n3ds_aes_init;
-	dc->vmsd = &n3ds_aes_vmsd;
+	k->init = ctr9_aes_init;
+	dc->vmsd = &ctr9_aes_vmsd;
 }
 
-static const TypeInfo n3ds_aes_info = {
-	.name          = TYPE_N3DS_AES,
+static const TypeInfo ctr9_aes_info = {
+	.name          = TYPE_CTR9_AES,
 	.parent        = TYPE_SYS_BUS_DEVICE,
-	.instance_size = sizeof(n3ds_aes_state),
-	.class_init    = n3ds_aes_class_init,
+	.instance_size = sizeof(ctr9_aes_state),
+	.class_init    = ctr9_aes_class_init,
 };
 
-static void n3ds_aes_register_types(void)
+static void ctr9_aes_register_types(void)
 {
-	type_register_static(&n3ds_aes_info);
+	type_register_static(&ctr9_aes_info);
 }
 
-type_init(n3ds_aes_register_types)
+type_init(ctr9_aes_register_types)

@@ -9,21 +9,21 @@
 #include "qemu/error-report.h"
 #include <stdio.h>
 
-static struct arm_boot_info n3ds_binfo;
+static struct arm_boot_info ctr9_binfo;
 
-typedef struct n3ds_fake11_state
+typedef struct ctr9_fake11_state
 {
 	SysBusDevice parent_obj;
 
 	MemoryRegion iomem;
 	uint32_t val;
-} n3ds_fake11_state;
+} ctr9_fake11_state;
 
-n3ds_fake11_state fake11_state;
+ctr9_fake11_state fake11_state;
 
-static uint64_t n3ds_fake11_read(void* opaque, hwaddr offset, unsigned size)
+static uint64_t ctr9_fake11_read(void* opaque, hwaddr offset, unsigned size)
 {
-	n3ds_fake11_state* s = (n3ds_fake11_state*)opaque;
+	ctr9_fake11_state* s = (ctr9_fake11_state*)opaque;
 	
 	uint64_t res = 0;
 	switch(offset)
@@ -35,28 +35,28 @@ static uint64_t n3ds_fake11_read(void* opaque, hwaddr offset, unsigned size)
 	return res;
 }
 
-static void n3ds_fake11_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
+static void ctr9_fake11_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
 {
-	n3ds_fake11_state* s = (n3ds_fake11_state*)opaque;
+	ctr9_fake11_state* s = (ctr9_fake11_state*)opaque;
 	
 	switch(offset)
 	{
 	default:
 		if(value == 1)
 			s->val = 3;
-		printf("n3ds-fakewrite11 : %08X\n", s->val);
+		printf("ctr9-fakewrite11 : %08X\n", s->val);
 		break;
 	}
 }
 
-static const MemoryRegionOps n3ds_fake11_ops =
+static const MemoryRegionOps ctr9_fake11_ops =
 {
-	.read = n3ds_fake11_read,
-	.write = n3ds_fake11_write,
+	.read = ctr9_fake11_read,
+	.write = ctr9_fake11_write,
 	.endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static void n3ds_init(MachineState *machine)
+static void ctr9_init(MachineState *machine)
 {
 	Error *err = NULL;
 
@@ -154,43 +154,43 @@ static void n3ds_init(MachineState *machine)
 	
 	int i;
 	qemu_irq pic[32];
-	DeviceState* dev = sysbus_create_simple("n3ds-pic", 0x10001000, qdev_get_gpio_in(DEVICE(cpu), ARM_CPU_IRQ));
+	DeviceState* dev = sysbus_create_simple("ctr9-pic", 0x10001000, qdev_get_gpio_in(DEVICE(cpu), ARM_CPU_IRQ));
 	for (i = 0; i < 32; i++)
 	{
 		pic[i] = qdev_get_gpio_in(dev, i);
 	}
 	
-	sysbus_create_varargs("n3ds-pit", 0x10003000, pic[8], pic[9], pic[10], pic[11], NULL);
+	sysbus_create_varargs("ctr9-pit", 0x10003000, pic[8], pic[9], pic[10], pic[11], NULL);
 	
-	sysbus_create_simple("n3ds-sdmmc", 0x10006000, NULL);
-	sysbus_create_simple("n3ds-lcdfb", 0x10400000, NULL);
-	sysbus_create_simple("n3ds-hid", 0x10146000, NULL);
-	sysbus_create_simple("n3ds-aes", 0x10009000, NULL);
+	sysbus_create_simple("ctr9-sdmmc", 0x10006000, NULL);
+	sysbus_create_simple("ctr9-lcdfb", 0x10400000, NULL);
+	sysbus_create_simple("ctr9-hid", 0x10146000, NULL);
+	sysbus_create_simple("ctr9-aes", 0x10009000, NULL);
 	
 	//DeviceState *dev = qdev_create(NULL, "fake11");
-	memory_region_init_io(&fake11_state.iomem, NULL, &n3ds_fake11_ops, &fake11_state, "fake11", 4);
+	memory_region_init_io(&fake11_state.iomem, NULL, &ctr9_fake11_ops, &fake11_state, "fake11", 4);
 	//sysbus_init_mmio(sbd, &fake11_state.iomem);
 	memory_region_add_subregion_overlap(sysmem, 0x1FFFFFF0, &fake11_state.iomem, 2);
 	fake11_state.val = 1;
 
-	n3ds_binfo.ram_size = machine->ram_size;
-	n3ds_binfo.kernel_filename = machine->kernel_filename;
-	n3ds_binfo.kernel_cmdline = machine->kernel_cmdline;
-	n3ds_binfo.initrd_filename = machine->initrd_filename;
-	n3ds_binfo.board_id = 0x2ff;
-	arm_load_kernel(cpu, &n3ds_binfo);
+	ctr9_binfo.ram_size = machine->ram_size;
+	ctr9_binfo.kernel_filename = machine->kernel_filename;
+	ctr9_binfo.kernel_cmdline = machine->kernel_cmdline;
+	ctr9_binfo.initrd_filename = machine->initrd_filename;
+	ctr9_binfo.board_id = 0x2ff;
+	arm_load_kernel(cpu, &ctr9_binfo);
 }
 
-static QEMUMachine n3ds_machine = {
-	.name = "n3ds",
+static QEMUMachine ctr9_machine = {
+	.name = "ctr9",
 	.desc = "nintendo 3ds (ARM946)",
-	.init = n3ds_init,
+	.init = ctr9_init,
 	.block_default_type = IF_SCSI,
 };
 
-static void n3ds_machine_init(void)
+static void ctr9_machine_init(void)
 {
-	qemu_register_machine(&n3ds_machine);
+	qemu_register_machine(&ctr9_machine);
 }
 
-machine_init(n3ds_machine_init);
+machine_init(ctr9_machine_init);

@@ -3,9 +3,9 @@
 #include "hw/devices.h"
 #include "ui/console.h"
 
-#define TYPE_N3DS_HID "n3ds-hid"
-#define N3DS_HID(obj) \
-    OBJECT_CHECK(n3ds_hid_state, (obj), TYPE_N3DS_HID)
+#define TYPE_CTR9_HID "ctr9-hid"
+#define CTR9_HID(obj) \
+    OBJECT_CHECK(ctr9_hid_state, (obj), TYPE_CTR9_HID)
 
 // http://www.philipstorr.id.au/pcbook/book3/scancode.htm
 #define KEY_RELEASED			0x80
@@ -40,35 +40,35 @@
 #define HID_X		((uint32_t)0x400)
 #define HID_Y		((uint32_t)0x800)
 
-typedef struct n3ds_hid_state {
+typedef struct ctr9_hid_state {
 	SysBusDevice parent_obj;
 
 	MemoryRegion iomem;
 	uint32_t kbd_extended;
 	uint32_t pressed_keys;
 	qemu_irq out[8];
-} n3ds_hid_state;
+} ctr9_hid_state;
 
-static uint64_t n3ds_hid_read(void* opaque, hwaddr offset, unsigned size)
+static uint64_t ctr9_hid_read(void* opaque, hwaddr offset, unsigned size)
 {
-	n3ds_hid_state* s = (n3ds_hid_state*)opaque;
+	ctr9_hid_state* s = (ctr9_hid_state*)opaque;
 	return ~s->pressed_keys;
 }
 
-static void n3ds_hid_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
+static void ctr9_hid_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
 {
 }
 
-static const MemoryRegionOps n3ds_hid_ops =
+static const MemoryRegionOps ctr9_hid_ops =
 {
-	.read = n3ds_hid_read,
-	.write = n3ds_hid_write,
+	.read = ctr9_hid_read,
+	.write = ctr9_hid_write,
 	.endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static void n3ds_hid_event(void *opaque, int keycode)
+static void ctr9_hid_event(void *opaque, int keycode)
 {
-	n3ds_hid_state *s = opaque;
+	ctr9_hid_state *s = opaque;
 	if (keycode == KEYCODE_EXTENDED) {
 		s->kbd_extended = 1;
 		return;
@@ -133,12 +133,12 @@ static void n3ds_hid_event(void *opaque, int keycode)
 	s->kbd_extended = 0;
 }
 
-static int n3ds_hid_init(SysBusDevice *sbd)
+static int ctr9_hid_init(SysBusDevice *sbd)
 {
 	DeviceState *dev = DEVICE(sbd);
-	n3ds_hid_state *s = N3DS_HID(dev);
+	ctr9_hid_state *s = CTR9_HID(dev);
 
-	memory_region_init_io(&s->iomem, OBJECT(s), &n3ds_hid_ops, s, "n3ds-hid", 4);
+	memory_region_init_io(&s->iomem, OBJECT(s), &ctr9_hid_ops, s, "ctr9-hid", 4);
 	sysbus_init_mmio(sbd, &s->iomem);
 
 	s->kbd_extended = 0;
@@ -146,41 +146,41 @@ static int n3ds_hid_init(SysBusDevice *sbd)
 
 	qdev_init_gpio_out(dev, s->out, ARRAY_SIZE(s->out));
 
-	qemu_add_kbd_event_handler(n3ds_hid_event, s);
+	qemu_add_kbd_event_handler(ctr9_hid_event, s);
 
 	return 0;
 }
 
-static const VMStateDescription n3ds_hid_vmsd = {
-	.name = "n3ds-hid",
+static const VMStateDescription ctr9_hid_vmsd = {
+	.name = "ctr9-hid",
 	.version_id = 1,
 	.minimum_version_id = 1,
 	.fields = (VMStateField[]) {
-		VMSTATE_UINT32(kbd_extended, n3ds_hid_state),
-		VMSTATE_UINT32(pressed_keys, n3ds_hid_state),
+		VMSTATE_UINT32(kbd_extended, ctr9_hid_state),
+		VMSTATE_UINT32(pressed_keys, ctr9_hid_state),
 		VMSTATE_END_OF_LIST()
 	}
 };
 
-static void n3ds_hid_class_init(ObjectClass *klass, void *data)
+static void ctr9_hid_class_init(ObjectClass *klass, void *data)
 {
 	DeviceClass *dc = DEVICE_CLASS(klass);
 	SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
-	k->init = n3ds_hid_init;
-	dc->vmsd = &n3ds_hid_vmsd;
+	k->init = ctr9_hid_init;
+	dc->vmsd = &ctr9_hid_vmsd;
 }
 
-static const TypeInfo n3ds_hid_info = {
-	.name          = TYPE_N3DS_HID,
+static const TypeInfo ctr9_hid_info = {
+	.name          = TYPE_CTR9_HID,
 	.parent        = TYPE_SYS_BUS_DEVICE,
-	.instance_size = sizeof(n3ds_hid_state),
-	.class_init    = n3ds_hid_class_init,
+	.instance_size = sizeof(ctr9_hid_state),
+	.class_init    = ctr9_hid_class_init,
 };
 
-static void n3ds_hid_register_types(void)
+static void ctr9_hid_register_types(void)
 {
-	type_register_static(&n3ds_hid_info);
+	type_register_static(&ctr9_hid_info);
 }
 
-type_init(n3ds_hid_register_types)
+type_init(ctr9_hid_register_types)

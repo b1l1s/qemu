@@ -2,11 +2,11 @@
 #include "hw/arm/arm.h"
 #include "hw/devices.h"
 
-#define TYPE_N3DS_SHA "n3ds-sha"
-#define N3DS_SHA(obj) \
-    OBJECT_CHECK(n3ds_sha_state, (obj), TYPE_N3DS_SHA)
+#define TYPE_CTR9_SHA "ctr9-sha"
+#define CTR9_SHA(obj) \
+    OBJECT_CHECK(ctr9_sha_state, (obj), TYPE_CTR9_SHA)
 
-typedef struct n3ds_sha_state {
+typedef struct ctr9_sha_state {
 	SysBusDevice parent_obj;
 
 	MemoryRegion iomem;
@@ -20,12 +20,12 @@ typedef struct n3ds_sha_state {
 	
 	uint8_t hash[0x20];
 	
-	n3ds_iofifo in_fifo;
-} n3ds_sha_state;
+	ctr9_iofifo in_fifo;
+} ctr9_sha_state;
 
-static uint64_t n3ds_sha_read(void* opaque, hwaddr offset, unsigned size)
+static uint64_t ctr9_sha_read(void* opaque, hwaddr offset, unsigned size)
 {
-	n3ds_sha_state* s = (n3ds_sha_state*)opaque;
+	ctr9_sha_state* s = (ctr9_sha_state*)opaque;
 	
 	uint64_t res = 0;
 	switch(offset)
@@ -53,9 +53,9 @@ static uint64_t n3ds_sha_read(void* opaque, hwaddr offset, unsigned size)
 	return res;
 }
 
-static void n3ds_sha_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
+static void ctr9_sha_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
 {
-	n3ds_sha_state* s = (n3ds_sha_state*)opaque;
+	ctr9_sha_state* s = (ctr9_sha_state*)opaque;
 	
 	switch(offset)
 	{
@@ -70,19 +70,19 @@ static void n3ds_sha_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 	}
 }
 
-static const MemoryRegionOps n3ds_sha_ops =
+static const MemoryRegionOps ctr9_sha_ops =
 {
-	.read = n3ds_sha_read,
-	.write = n3ds_sha_write,
+	.read = ctr9_sha_read,
+	.write = ctr9_sha_write,
 	.endianness = DEVICE_NATIVE_ENDIAN,
 };
 
-static int n3ds_sha_init(SysBusDevice *sbd)
+static int ctr9_sha_init(SysBusDevice *sbd)
 {
 	DeviceState *dev = DEVICE(sbd);
-	n3ds_sha_state *s = N3DS_SHA(dev);
+	ctr9_sha_state *s = CTR9_SHA(dev);
 
-	memory_region_init_io(&s->iomem, OBJECT(s), &n3ds_sha_ops, s, "n3ds-sha", 0x100);
+	memory_region_init_io(&s->iomem, OBJECT(s), &ctr9_sha_ops, s, "ctr9-sha", 0x100);
 	sysbus_init_mmio(sbd, &s->iomem);
 	
 	s->start = 0;
@@ -95,8 +95,8 @@ static int n3ds_sha_init(SysBusDevice *sbd)
 	return 0;
 }
 
-static const VMStateDescription n3ds_sha_vmsd = {
-	.name = "n3ds-sha",
+static const VMStateDescription ctr9_sha_vmsd = {
+	.name = "ctr9-sha",
 	.version_id = 1,
 	.minimum_version_id = 1,
 	.fields = (VMStateField[]) {
@@ -104,25 +104,25 @@ static const VMStateDescription n3ds_sha_vmsd = {
 	}
 };
 
-static void n3ds_sha_class_init(ObjectClass *klass, void *data)
+static void ctr9_sha_class_init(ObjectClass *klass, void *data)
 {
 	DeviceClass *dc = DEVICE_CLASS(klass);
 	SysBusDeviceClass *k = SYS_BUS_DEVICE_CLASS(klass);
 
-	k->init = n3ds_sha_init;
-	dc->vmsd = &n3ds_sha_vmsd;
+	k->init = ctr9_sha_init;
+	dc->vmsd = &ctr9_sha_vmsd;
 }
 
-static const TypeInfo n3ds_sha_info = {
-	.name          = TYPE_N3DS_SHA,
+static const TypeInfo ctr9_sha_info = {
+	.name          = TYPE_CTR9_SHA,
 	.parent        = TYPE_SYS_BUS_DEVICE,
-	.instance_size = sizeof(n3ds_sha_state),
-	.class_init    = n3ds_sha_class_init,
+	.instance_size = sizeof(ctr9_sha_state),
+	.class_init    = ctr9_sha_class_init,
 };
 
-static void n3ds_sha_register_types(void)
+static void ctr9_sha_register_types(void)
 {
-	type_register_static(&n3ds_sha_info);
+	type_register_static(&ctr9_sha_info);
 }
 
-type_init(n3ds_sha_register_types)
+type_init(ctr9_sha_register_types)

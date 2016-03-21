@@ -8,8 +8,8 @@
 #define CTR9_PIT(obj) \
     OBJECT_CHECK(ctr9_pit_state, (obj), TYPE_CTR9_PIT)
 
-#define BASE_FREQ (67027964ll)
-//#define BASE_FREQ (100000ll)
+//#define BASE_FREQ (67027964ll)
+#define BASE_FREQ (50000000ll)
 
 static const uint32_t prescaler_table[] = 
 {

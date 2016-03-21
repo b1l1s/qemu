@@ -48,9 +48,10 @@ typedef struct ctr9_aes_keyfifo
 
 typedef struct ctr9_aes_state {
 	SysBusDevice parent_obj;
-
 	MemoryRegion iomem;
-	
+
+	qemu_irq irq;
+
 	ctr9_aes_keyslot keyslots[0x40];
 	
 	uint8_t output_endian;
@@ -105,6 +106,9 @@ static uint64_t ctr9_aes_read(void* opaque, hwaddr offset, unsigned size)
 	default:
 		break;
 	}
+
+	//printf("ctr9_aes_read  0x%03X %X %08X\n", (uint32_t)offset, size, res);
+	
 	return res;
 }
 
@@ -263,6 +267,8 @@ static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 {
 	ctr9_aes_state* s = (ctr9_aes_state*)opaque;
 	
+	//printf("ctr9_aes_write 0x%03X %X %08X\n", (uint32_t)offset, size, (uint32_t)value);
+	
 	switch(offset)
 	{
 	case 0x00: // AES_CNT
@@ -270,9 +276,29 @@ static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 		s->output_order = (value & AES_CNT_OUTPUT_ORDER) == AES_OUTPUT_NORMAL;
 		s->input_endian = (value & AES_CNT_INPUT_ENDIAN) == AES_INPUT_BE;
 		s->output_endian = (value & AES_CNT_OUTPUT_ENDIAN) == AES_OUTPUT_BE;
+		s->mode = (value >> 27) & 7;
+		s->interrupt = (value >> 30) & 1;
+		s->start = (value >> 31) & 1;
 		
 		if(value & (1 << 26))
+		{
+			// select keyslot
 			memcpy(s->active_key, s->keyslots[s->keysel].keys[0], 0x10);
+			printf("AES  *****\n");
+			printf(" selected keyslot 0x%02X\n", s->keysel);
+		}
+		if(s->start)
+		{
+			/*
+			printf("AES  *****\n");
+			printf(" input_order 0x%02X\n", s->input_order);
+			printf(" output_order 0x%02X\n", s->output_order);
+			printf(" input_endian 0x%02X\n", s->input_endian);
+			printf(" output_endian 0x%02X\n", s->output_endian);
+			printf(" mode 0x%02X\n", s->mode);
+			printf(" interrupt 0x%02X\n", s->interrupt);*/
+			s->start = 0;
+		}
 		
 		break;
 	case 0x04: // AES_BLKCOUNT
@@ -339,6 +365,8 @@ static int ctr9_aes_init(SysBusDevice *sbd)
 	DeviceState *dev = DEVICE(sbd);
 	ctr9_aes_state *s = CTR9_AES(dev);
 
+	sysbus_init_irq(sbd, &s->irq);
+	
 	memory_region_init_io(&s->iomem, OBJECT(s), &ctr9_aes_ops, s, "ctr9-aes", 0x200);
 	sysbus_init_mmio(sbd, &s->iomem);
 	

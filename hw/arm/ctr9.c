@@ -9,6 +9,37 @@
 #include "qemu/error-report.h"
 #include <stdio.h>
 
+#define IRQ_ID_DMAC_1_0			0
+#define IRQ_ID_DMAC_1_1			1
+#define IRQ_ID_DMAC_1_2			2
+#define IRQ_ID_DMAC_1_3			3
+#define IRQ_ID_DMAC_1_4			4
+#define IRQ_ID_DMAC_1_5			5
+#define IRQ_ID_DMAC_1_6			6
+#define IRQ_ID_DMAC_1_7			7
+#define IRQ_ID_TIMER_0			8
+#define IRQ_ID_TIMER_1			9
+#define IRQ_ID_TIMER_2			10
+#define IRQ_ID_TIMER_3			11
+#define IRQ_ID_PXI_SYNC			12
+#define IRQ_ID_PXI_NOT_FULL		13
+#define IRQ_ID_PXI_NOT_EMPTY	14
+#define IRQ_ID_AES				15
+#define IRQ_ID_SDIO_1			16
+#define IRQ_ID_SDIO_1_ASYNC		17
+#define IRQ_ID_SDIO_3			18
+#define IRQ_ID_SDIO_3_ASYNC		19
+#define IRQ_ID_DEBUG_RECV		20
+#define IRQ_ID_DEBUG_SEND		21
+#define IRQ_ID_RSA				22
+#define IRQ_ID_CTR_CARD_1		23
+#define IRQ_ID_CTR_CARD_2		24
+#define IRQ_ID_CGC				25
+#define IRQ_ID_CGC_DET			26
+#define IRQ_ID_DS_CARD			27
+#define IRQ_ID_DMAC_2			28
+#define IRQ_ID_DMAC_2_ABORT		29
+
 static struct arm_boot_info ctr9_binfo;
 
 typedef struct ctr9_fake11_state
@@ -131,6 +162,22 @@ static void ctr9_init(MachineState *machine)
 	memory_region_init_alias(itcm_alias, NULL, "itcm.alias", itcm, 0, 0x8000);
 	memory_region_add_subregion(sysmem, 0x01FF8000, itcm_alias);
 	
+	FILE* fitcm = fopen("3ds-data/itcm.bin", "rb");
+	if(fitcm)
+	{
+		fseek(fitcm, 0, SEEK_END);
+		size_t size = ftell(fitcm);
+		fseek(fitcm, 0, SEEK_SET);
+		
+		uint8_t* buffer = (uint8_t*) malloc(size);
+		fread(buffer, size, 1, fitcm);
+		
+		cpu_physical_memory_write(0x01FF8000, buffer, size);
+		
+		free(buffer);
+		fclose(fitcm);
+	}
+	
 	MemoryRegion* bootrom = g_new(MemoryRegion, 1);
 	memory_region_init_ram(bootrom, NULL, "bootrom", 0x00010000, &error_abort);
 	vmstate_register_ram_global(bootrom);
@@ -160,17 +207,20 @@ static void ctr9_init(MachineState *machine)
 		pic[i] = qdev_get_gpio_in(dev, i);
 	}
 	
-	sysbus_create_varargs("ctr9-pit", 0x10003000, pic[8], pic[9], pic[10], pic[11], NULL);
-	
-	sysbus_create_simple("ctr9-sdmmc", 0x10006000, NULL);
+	sysbus_create_varargs("ctr9-pit", 0x10003000,
+							pic[IRQ_ID_TIMER_0], pic[IRQ_ID_TIMER_1],
+							pic[IRQ_ID_TIMER_2], pic[IRQ_ID_TIMER_3],
+							NULL);
+
 	sysbus_create_simple("ctr9-lcdfb", 0x10400000, NULL);
 	sysbus_create_simple("ctr9-hid", 0x10146000, NULL);
-	sysbus_create_simple("ctr9-aes", 0x10009000, NULL);
+	sysbus_create_simple("ctr9-ndma", 0x10002000, NULL);
+	sysbus_create_simple("ctr9-sdmmc", 0x10006000, pic[IRQ_ID_SDIO_1]);
+	sysbus_create_simple("ctr9-aes", 0x10009000, pic[IRQ_ID_AES]);
 	sysbus_create_simple("ctr9-sha", 0x1000A000, NULL);
+	sysbus_create_simple("ctr9-rsa", 0x1000B000, pic[IRQ_ID_RSA]);
 	
-	//DeviceState *dev = qdev_create(NULL, "fake11");
 	memory_region_init_io(&fake11_state.iomem, NULL, &ctr9_fake11_ops, &fake11_state, "fake11", 4);
-	//sysbus_init_mmio(sbd, &fake11_state.iomem);
 	memory_region_add_subregion_overlap(sysmem, 0x1FFFFFF0, &fake11_state.iomem, 2);
 	fake11_state.val = 1;
 

@@ -98,6 +98,10 @@ static void ctr9_sha_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 
 		if(s->final)
 		{
+			printf("SHA  *****\n");
+			printf(" final round\n");
+			printf(" mode : %d\n", s->mode);
+			printf(" output_endian : %d\n", s->output_endian);
 			uint32_t fifo_len = ctr9_fifo_len(&s->in_fifo);
 			if(fifo_len)
 			{
@@ -106,13 +110,17 @@ static void ctr9_sha_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 				gnutls_hash(s->dig, s->in_fifo.buffer, fifo_len);
 				ctr9_fifo_reset(&s->in_fifo);
 			}
-
-			printf("final round\n");
+			
 			gnutls_hash_deinit(s->dig, s->hash);
 			s->final = 0;
 		}
 		break;
-	case 0x80 ... 0x83: // REG_SHA_INFIFO
+	default:
+		break;
+	}
+	
+	if(offset >= 0x80 && offset < 0xC0)
+	{
 		ctr9_fifo_push(&s->in_fifo, value, size);
 		if(ctr9_fifo_len(&s->in_fifo) == 128)
 		{
@@ -121,9 +129,6 @@ static void ctr9_sha_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 			gnutls_hash(s->dig, s->in_fifo.buffer, 128);
 			ctr9_fifo_reset(&s->in_fifo);
 		}
-		break;
-	default:
-		break;
 	}
 }
 

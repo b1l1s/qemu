@@ -341,6 +341,7 @@ static void ctr9_sdmmc_write(void *opaque, hwaddr offset, uint64_t value, unsign
 				card->state = EMMC_STATE_READY;
 				break;
 			case 0x02: // ALL_SEND_CID
+				memcpy(s->ret, card->cid, 0x10);
 				card->status[0] = TMIO_STAT0_CMDRESPEND;
 				card->state = EMMC_STATE_IDENT;
 				break;

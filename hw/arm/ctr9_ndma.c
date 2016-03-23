@@ -26,7 +26,8 @@
 #define NDMA_UPDATE_FIXED	(2)
 #define NDMA_UPDATE_FILL	(3)
 
-typedef struct ctr9_ndma_channel_state {
+typedef struct ctr9_ndma_channel_state
+{
 	qemu_irq irq;
 	
 	// NDMA_SRC_ADDR
@@ -59,7 +60,19 @@ typedef struct ctr9_ndma_channel_state {
 	uint8_t enable;
 } ctr9_ndma_channel_state;
 
-typedef struct ctr9_ndma_state {
+#define NDMA_EVENT_SIZE (512)
+
+typedef struct ctr9_ndma_event
+{
+	int id[NDMA_EVENT_SIZE];
+	
+	bool full;
+	uint32_t rd;
+	uint32_t wr;
+} ctr9_ndma_event;
+
+typedef struct ctr9_ndma_state
+{
 	SysBusDevice parent_obj;
 	MemoryRegion iomem;
 	
@@ -71,7 +84,125 @@ typedef struct ctr9_ndma_state {
 	ctr9_ndma_channel_state channels[8];
 	
 	ctr9_iofifo fifo;
+	
+	ctr9_ndma_event events;
+	bool processing;
 } ctr9_ndma_state;
+
+static void ctr9_ndma_trigger(ctr9_ndma_state* s, ctr9_ndma_channel_state* c)
+{
+	if(c->src_update == NDMA_UPDATE_FILL)
+	{
+		// TODO
+	}
+	else
+	{
+		int src_stride = 1, dst_stride = 1;
+		if(c->src_update == NDMA_UPDATE_DEC)
+			src_stride = -1;
+		else if(c->src_update == NDMA_UPDATE_FIXED)
+			src_stride = 0;
+		
+		if(c->dst_update == NDMA_UPDATE_DEC)
+			dst_stride = -1;
+		else if(c->dst_update == NDMA_UPDATE_FIXED)
+			dst_stride = 0;
+		
+		uint32_t temp, i; // TODO block_size limited to 4
+		for(i = 0; i < c->block_count; ++i)
+		{
+			dma_memory_read(&address_space_memory, c->src_addr + i * c->block_size * src_stride, &temp, c->block_size);
+			dma_memory_write(&address_space_memory, c->dst_addr + i * c->block_size * dst_stride, &temp, c->block_size);
+		}
+		
+		c->total -= c->block_count;
+		if(c->total == 0 || c->immediate)
+			c->enable = 0;
+		
+		c->src_addr += i * c->block_size * src_stride;
+		c->dst_addr += i * c->block_size * dst_stride;
+	}
+}
+
+static bool ctr9_ndma_event_empty(ctr9_ndma_event* e)
+{
+	if(e->full)
+		return false;
+	return e->rd == e->wr;
+}
+
+static uint32_t ctr9_ndma_event_len(ctr9_ndma_event* e)
+{
+	if(e->full)
+		return NDMA_EVENT_SIZE;
+
+	return (e->wr - e->rd) & (NDMA_EVENT_SIZE - 1);
+}
+
+static void ctr9_ndma_event_push(ctr9_ndma_event* e, int startup_id)
+{
+	if(!e->full)
+	{
+		e->id[e->wr] = startup_id;
+		e->wr = (e->wr + 1) & (NDMA_EVENT_SIZE - 1);
+		
+		if(ctr9_ndma_event_len(e) == 0)
+		{
+			e->full = true;
+		}
+	}
+}
+
+static int ctr9_ndma_event_pop(ctr9_ndma_event* e)
+{
+	int res = 0;
+	if(!ctr9_ndma_event_empty(e))
+	{
+		res = e->id[e->rd];
+		e->rd = (e->rd + 1) & (NDMA_EVENT_SIZE - 1);
+		
+		e->full = false;
+	}
+	
+	return res;
+}
+
+static void ctr9_ndma_event_process(ctr9_ndma_state *s, int startup_id)
+{
+	int i;
+	for(i = 0; i < 8; ++i)
+	{
+		ctr9_ndma_channel_state* c = &s->channels[i];
+		if(c->startup == startup_id && c->enable)
+		{
+			ctr9_ndma_trigger(s, c);
+		}
+	}
+}
+
+static void ctr9_ndma_set_gpio(void *opaque, int startup_id, int level)
+{
+	ctr9_ndma_state *s = opaque;
+	
+	if(level && startup_id < 16)
+	{
+		if(!s->processing)
+		{
+			s->processing = 1;
+			ctr9_ndma_event_process(s, startup_id);
+			
+			// process other pending events
+			while(!ctr9_ndma_event_empty(&s->events))
+				ctr9_ndma_event_process(s, ctr9_ndma_event_pop(&s->events));
+			
+			s->processing = 0;
+		}
+		else
+		{
+			ctr9_ndma_event_push(&s->events, startup_id);
+		}
+	}
+}
 
 static uint64_t ctr9_ndma_read(void* opaque, hwaddr offset, unsigned size)
 {
@@ -183,6 +314,7 @@ static void ctr9_ndma_write(void *opaque, hwaddr offset, uint64_t value, unsigne
 				printf("NDMA *****\n");
 				printf(" src_addr 0x%08X\n", c->src_addr);
 				printf(" dst_addr 0x%08X\n", c->dst_addr);
+				printf(" total 0x%08X\n", c->total);
 				printf(" block_count 0x%08X\n", c->block_count);
 				printf(" interval 0x%04X\n", c->interval);
 				printf(" prescaler 0x%02X\n", c->prescaler);
@@ -196,39 +328,9 @@ static void ctr9_ndma_write(void *opaque, hwaddr offset, uint64_t value, unsigne
 				printf(" immediate 0x%02X\n", c->immediate);
 				printf(" repeating 0x%02X\n", c->repeating);
 				printf(" irq_enable 0x%02X\n", c->irq_enable);
-				c->enable = 0;
 				
 				if(c->immediate)
-				{
-					if(c->src_update == NDMA_UPDATE_FILL)
-					{
-						// TODO
-					}
-					else
-					{
-						int src_stride = 1, dst_stride = 1;
-						if(c->src_update == NDMA_UPDATE_DEC)
-							src_stride = -1;
-						else if(c->src_update == NDMA_UPDATE_FIXED)
-							src_stride = 0;
-						
-						if(c->dst_update == NDMA_UPDATE_DEC)
-							dst_stride = -1;
-						else if(c->dst_update == NDMA_UPDATE_FIXED)
-							dst_stride = 0;
-						
-						uint32_t temp, i; // TODO block_size limited to 4
-						for(i = 0; i < c->block_count; ++i)
-						{
-							dma_memory_read(&address_space_memory, c->src_addr + i * c->block_size * src_stride, &temp, c->block_size);
-							dma_memory_write(&address_space_memory, c->dst_addr + i * c->block_size * dst_stride, &temp, c->block_size);
-						}
-					}
-				}
-				else
-				{
-					// TODO
-				}
+					ctr9_ndma_trigger(s, c);
 			}
 			
 			break;
@@ -249,7 +351,12 @@ static int ctr9_ndma_init(SysBusDevice *sbd)
 {
 	DeviceState *dev = DEVICE(sbd);
 	ctr9_ndma_state *s = CTR9_NDMA(dev);
+	
+	int i;
+	for(i = 0; i < 8; ++i)
+		sysbus_init_irq(sbd, &s->channels[i].irq);
 
+	qdev_init_gpio_in(DEVICE(dev), ctr9_ndma_set_gpio, 15);
 	memory_region_init_io(&s->iomem, OBJECT(s), &ctr9_ndma_ops, s, "ctr9-ndma", 0x1000);
 	sysbus_init_mmio(sbd, &s->iomem);
 	

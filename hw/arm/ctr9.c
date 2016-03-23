@@ -206,6 +206,12 @@ static void ctr9_init(MachineState *machine)
 	{
 		pic[i] = qdev_get_gpio_in(dev, i);
 	}
+	DeviceState* ndma = sysbus_create_varargs("ctr9-ndma", 0x10002000,
+							pic[IRQ_ID_DMAC_1_0], pic[IRQ_ID_DMAC_1_1],
+							pic[IRQ_ID_DMAC_1_2], pic[IRQ_ID_DMAC_1_3],
+							pic[IRQ_ID_DMAC_1_4], pic[IRQ_ID_DMAC_1_5],
+							pic[IRQ_ID_DMAC_1_6], pic[IRQ_ID_DMAC_1_7],
+							NULL);
 	
 	sysbus_create_varargs("ctr9-pit", 0x10003000,
 							pic[IRQ_ID_TIMER_0], pic[IRQ_ID_TIMER_1],
@@ -214,11 +220,13 @@ static void ctr9_init(MachineState *machine)
 
 	sysbus_create_simple("ctr9-lcdfb", 0x10400000, NULL);
 	sysbus_create_simple("ctr9-hid", 0x10146000, NULL);
-	sysbus_create_simple("ctr9-ndma", 0x10002000, NULL);
 	sysbus_create_simple("ctr9-sdmmc", 0x10006000, pic[IRQ_ID_SDIO_1]);
-	sysbus_create_simple("ctr9-aes", 0x10009000, pic[IRQ_ID_AES]);
+	DeviceState* aes = sysbus_create_simple("ctr9-aes", 0x10009000, pic[IRQ_ID_AES]);
 	sysbus_create_simple("ctr9-sha", 0x1000A000, NULL);
 	sysbus_create_simple("ctr9-rsa", 0x1000B000, pic[IRQ_ID_RSA]);
+	
+	qdev_connect_gpio_out(aes, 0, qdev_get_gpio_in(ndma, 8));
+	qdev_connect_gpio_out(aes, 1, qdev_get_gpio_in(ndma, 9));
 	
 	memory_region_init_io(&fake11_state.iomem, NULL, &ctr9_fake11_ops, &fake11_state, "fake11", 4);
 	memory_region_add_subregion_overlap(sysmem, 0x1FFFFFF0, &fake11_state.iomem, 2);

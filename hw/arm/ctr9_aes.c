@@ -51,6 +51,7 @@ typedef struct ctr9_aes_state {
 	MemoryRegion iomem;
 
 	qemu_irq irq;
+	qemu_irq ndma_gpio[2];
 
 	ctr9_aes_keyslot keyslots[0x40];
 	
@@ -59,8 +60,10 @@ typedef struct ctr9_aes_state {
 	uint8_t output_order;
 	uint8_t input_order;
 	
+	uint8_t unk;
+	
 	uint8_t mode;
-	uint8_t interrupt;
+	uint8_t irq_enable;
 	uint8_t start;
 	
 	uint32_t block_count;
@@ -80,6 +83,14 @@ typedef struct ctr9_aes_state {
 	ctr9_aes_keyfifo keyfifos[0x3];
 } ctr9_aes_state;
 
+static void print_be(const uint8_t* src, int size)
+{
+	int i;
+	for(i = 0; i < size; ++i)
+		printf("%02X", src[i]);
+	printf("\n");
+}
+
 static uint64_t ctr9_aes_read(void* opaque, hwaddr offset, unsigned size)
 {
 	ctr9_aes_state* s = (ctr9_aes_state*)opaque;
@@ -90,8 +101,9 @@ static uint64_t ctr9_aes_read(void* opaque, hwaddr offset, unsigned size)
 	case 0x00: // AES_CNT
 		res = (ctr9_fifo_len(&s->rd_fifo) / 4) << 5 | (ctr9_fifo_len(&s->wr_fifo) / 4);
 		res |= (s->input_order << 3 | s->output_order << 2 | s->input_endian << 1 | s->output_endian) << 22;
+		res |= s->unk << 12;
 		res |= s->mode << 27;
-		res |= s->interrupt << 30;
+		res |= s->irq_enable << 30;
 		res |= s->start << 31;
 		break;
 	case 0x0C: // AES_RDFIFO
@@ -256,6 +268,10 @@ static void ctr9_aes_keyfifo_write(ctr9_aes_state* s, int key_type, uint32_t val
 		else
 			memcpy(target_key, key_buffer, 0x10);
 		
+		printf("AES  *****\n");
+		printf(" keyset, slot : 0x%02X, type : %d\n", s->keycnt_key, key_type);
+		print_be(target_key, 0x10);
+		
 		if(key_type == 2)
 			ctr9_aes_keyfifo_scramble(s);
 		
@@ -276,8 +292,9 @@ static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 		s->output_order = (value & AES_CNT_OUTPUT_ORDER) == AES_OUTPUT_NORMAL;
 		s->input_endian = (value & AES_CNT_INPUT_ENDIAN) == AES_INPUT_BE;
 		s->output_endian = (value & AES_CNT_OUTPUT_ENDIAN) == AES_OUTPUT_BE;
+		s->unk = (value >> 12) & 3;
 		s->mode = (value >> 27) & 7;
-		s->interrupt = (value >> 30) & 1;
+		s->irq_enable = (value >> 30) & 1;
 		s->start = (value >> 31) & 1;
 		
 		if(value & (1 << 26))
@@ -289,20 +306,26 @@ static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 		}
 		if(s->start)
 		{
-			/*
 			printf("AES  *****\n");
 			printf(" input_order 0x%02X\n", s->input_order);
 			printf(" output_order 0x%02X\n", s->output_order);
 			printf(" input_endian 0x%02X\n", s->input_endian);
 			printf(" output_endian 0x%02X\n", s->output_endian);
 			printf(" mode 0x%02X\n", s->mode);
-			printf(" interrupt 0x%02X\n", s->interrupt);*/
-			s->start = 0;
+			printf(" irq_enable 0x%02X\n", s->irq_enable);
+			printf(" block_count 0x%08X\n", s->block_count);
+			printf(" CTR/IV ");
+			print_be(s->ctr, 0x10);
+			//s->start = 0;
+			qemu_irq_raise(s->ndma_gpio[0]);
 		}
 		
 		break;
 	case 0x04: // AES_BLKCOUNT
 		s->block_count = value >> 16;
+		break;
+	case 0x06:
+		s->block_count = value;
 		break;
 	case 0x08: // AES_WRFIFO
 		// TODO currently passthrough, we need a proper one
@@ -315,10 +338,18 @@ static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 				for(i = 0; i < 4; ++i)
 					ctr9_fifo_push(&s->rd_fifo, ctr9_fifo_pop(&s->wr_fifo), 4);
 				
+				if((128 - ctr9_fifo_len(&s->rd_fifo)) >= 0x10)
+					qemu_irq_raise(s->ndma_gpio[1]); // RDFIFO has 4 words available
+				if((128 - ctr9_fifo_len(&s->wr_fifo)) >= 0x10)
+					qemu_irq_raise(s->ndma_gpio[0]); // WRFIFO has 4 words available
+				
 				s->block_count -= 1;
 				if(s->block_count == 0)
 				{
 					s->start = 0;
+					
+					if(s->irq_enable)
+						qemu_irq_raise(s->irq);
 				}
 			}
 		}
@@ -366,7 +397,8 @@ static int ctr9_aes_init(SysBusDevice *sbd)
 	ctr9_aes_state *s = CTR9_AES(dev);
 
 	sysbus_init_irq(sbd, &s->irq);
-	
+	qdev_init_gpio_out(dev, s->ndma_gpio, 2);
+
 	memory_region_init_io(&s->iomem, OBJECT(s), &ctr9_aes_ops, s, "ctr9-aes", 0x200);
 	sysbus_init_mmio(sbd, &s->iomem);
 	
@@ -380,7 +412,7 @@ static int ctr9_aes_init(SysBusDevice *sbd)
 	s->input_order = 1;
 	
 	s->mode = 0;
-	s->interrupt = 0;
+	s->irq_enable = 0;
 	s->start = 0;
 	
 	s->block_count = 0;

@@ -83,8 +83,6 @@ typedef struct ctr9_ndma_state
 	
 	ctr9_ndma_channel_state channels[8];
 	
-	ctr9_iofifo fifo;
-	
 	ctr9_ndma_event events;
 	bool processing;
 } ctr9_ndma_state;
@@ -359,8 +357,6 @@ static int ctr9_ndma_init(SysBusDevice *sbd)
 	qdev_init_gpio_in(DEVICE(dev), ctr9_ndma_set_gpio, 15);
 	memory_region_init_io(&s->iomem, OBJECT(s), &ctr9_ndma_ops, s, "ctr9-ndma", 0x1000);
 	sysbus_init_mmio(sbd, &s->iomem);
-	
-	memset(&s->fifo, 0, sizeof(s->fifo));
 
 	return 0;
 }

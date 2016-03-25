@@ -152,7 +152,7 @@ static int ctr9_sha_init(SysBusDevice *sbd)
 	s->output_endian = 1;
 	s->mode = 0;
 	
-	ctr9_fifo_reset(&s->in_fifo);
+	ctr9_fifo_init(&s->in_fifo, 128);
 
 	return 0;
 }

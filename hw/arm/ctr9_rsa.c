@@ -40,7 +40,7 @@ typedef struct ctr9_rsa_state {
 	
 	// RSA_CNT
 	bool enable;
-	bool cntunk;
+	bool irq_enable;
 	uint8_t keyslot;
 	bool endian;
 	bool order;
@@ -65,7 +65,7 @@ static uint64_t ctr9_rsa_read(void* opaque, hwaddr offset, unsigned size)
 	
 	if(offset < (RSA_CNT + 4))
 	{
-		res = s->enable | (s->cntunk << 1) | (s->keyslot << 4) | (s->endian << 8) | (s->order << 9);
+		res = s->enable | (s->irq_enable << 1) | (s->keyslot << 4) | (s->endian << 8) | (s->order << 9);
 	}
 	else if(offset >= RSA_UNK && offset < (RSA_UNK + 4))
 	{
@@ -88,6 +88,9 @@ static uint64_t ctr9_rsa_read(void* opaque, hwaddr offset, unsigned size)
 		default:
 			break;
 		}
+		
+		//if(keyslot_offset == RSA_SLOTSIZE)
+		//	cpu_single_step(qemu_get_cpu(0), SSTEP_ENABLE | SSTEP_NOIRQ | SSTEP_NOTIMER);
 	}
 	else if(offset >= RSA_EXPFIFO && offset < (RSA_EXPFIFO + 4))
 	{
@@ -113,10 +116,63 @@ static void ctr9_rsa_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 	
 	printf("ctr9_rsa_write 0x%03X %X %08X\n", (uint32_t)offset, size, (uint32_t)value);
 	
-	switch(offset)
+	if(offset < (RSA_CNT + 4))
 	{
-	default:
-		break;
+		s->enable = value & 1;
+		s->irq_enable = (value >> 1) & 1;
+		s->keyslot = (value >> 4) & 0xF;
+		s->endian = (value >> 8) & 1;
+		s->order = (value >> 9) & 1;
+		
+		if(s->enable)
+		{
+			printf("RSA  *****\n");
+			printf(" irq_enable : %d\n", s->irq_enable);
+			printf(" keyslot : %d\n", s->keyslot);
+			printf(" endian : %d\n", s->endian);
+			printf(" order : %d\n", s->order);
+			
+			if(s->irq_enable)
+				qemu_irq_raise(s->irq);
+			
+			s->enable = 0;
+		}
+	}
+	else if(offset >= RSA_UNK && offset < (RSA_UNK + 4))
+	{
+		s->unk = value;
+	}
+	else if(offset >= RSA_SLOT0 && offset < (RSA_SLOT3 + 0x10))
+	{
+		uint32_t keyslot_id = (offset - RSA_SLOT0) / 0x10;
+		uint32_t keyslot_offset = (offset - RSA_SLOT0) % 0x10;
+		
+		ctr9_rsa_keyslot* k = &s->keyslots[keyslot_id];
+		switch(keyslot_offset)
+		{
+		case RSA_SLOTCNT:
+			k->set = value & 1;
+			k->key_wr_protect = (value >> 1) & 1;
+			break;
+		case RSA_SLOTSIZE:
+			k->slot_size = value;
+			break;
+		default:
+			break;
+		}
+	}
+	else if(offset >= RSA_EXPFIFO && offset < (RSA_EXPFIFO + 4))
+	{
+		ctr9_fifo_push(&s->exp_fifo, value, size);
+		s->keyslots[s->keyslot].slot_size = ctr9_fifo_len(&s->exp_fifo) / 4;
+	}
+	else if(offset >= RSA_MOD && offset < (RSA_MOD + 0x100))
+	{
+		
+	}
+	else if(offset >= RSA_TXT && offset < (RSA_TXT + 0x100))
+	{
+		
 	}
 }
 
@@ -136,6 +192,8 @@ static int ctr9_rsa_init(SysBusDevice *sbd)
 
 	memory_region_init_io(&s->iomem, OBJECT(s), &ctr9_rsa_ops, s, "ctr9-rsa", 0x1000);
 	sysbus_init_mmio(sbd, &s->iomem);
+	
+	ctr9_fifo_init(&s->exp_fifo, 0x100);
 
 	return 0;
 }

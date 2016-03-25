@@ -403,8 +403,9 @@ static int ctr9_aes_init(SysBusDevice *sbd)
 	sysbus_init_mmio(sbd, &s->iomem);
 	
 	memset(s->keyslots, 0, sizeof(s->keyslots));
-	memset(&s->wr_fifo, 0, sizeof(s->wr_fifo));
-	memset(&s->rd_fifo, 0, sizeof(s->rd_fifo));
+	
+	ctr9_fifo_init(&s->wr_fifo, 128);
+	ctr9_fifo_init(&s->rd_fifo, 128);
 	
 	s->output_endian = 1;
 	s->input_endian = 1;

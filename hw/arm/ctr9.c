@@ -221,6 +221,9 @@ static void ctr9_init(MachineState *machine)
 	sysbus_create_simple("ctr9-lcdfb", 0x10400000, NULL);
 	sysbus_create_simple("ctr9-hid", 0x10146000, NULL);
 	sysbus_create_simple("ctr9-sdmmc", 0x10006000, pic[IRQ_ID_SDIO_1]);
+	sysbus_create_varargs("ctr9-pxi", 0x10008000, pic[IRQ_ID_PXI_SYNC],
+							pic[IRQ_ID_PXI_NOT_FULL], pic[IRQ_ID_PXI_NOT_EMPTY],
+							NULL);
 	DeviceState* aes = sysbus_create_simple("ctr9-aes", 0x10009000, pic[IRQ_ID_AES]);
 	sysbus_create_simple("ctr9-sha", 0x1000A000, NULL);
 	sysbus_create_simple("ctr9-rsa", 0x1000B000, pic[IRQ_ID_RSA]);

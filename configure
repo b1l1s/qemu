@@ -332,6 +332,7 @@ gtk=""
 gtkabi=""
 gnutls=""
 gnutls_hash=""
+gcrypt=""
 vte=""
 tpm="yes"
 libssh2=""
@@ -1119,6 +1120,10 @@ for opt do
   ;;
   --enable-gnutls) gnutls="yes"
   ;;
+  --disable-gcrypt) gcrypt="no"
+  ;;
+  --enable-gcrypt) gcrypt="yes"
+  ;;
   --enable-rdma) rdma="yes"
   ;;
   --disable-rdma) rdma="no"
@@ -1326,6 +1331,7 @@ disabled with --disable-FEATURE, default is enabled if available:
   sparse          sparse checker
 
   gnutls          GNUTLS cryptography support
+  gcrypt          gcrypt cryptography support
   sdl             SDL UI
   --with-sdlabi     select preferred SDL ABI 1.2 or 2.0
   gtk             gtk UI
@@ -2207,6 +2213,20 @@ if test "$gnutls_nettle" != "no"; then
     fi
 fi
 
+##########################################
+# gcrypt probe
+if test "$gcrypt" != "no"; then
+    if has "libgcrypt-config"; then
+        gcrypt_cflags=`libgcrypt-config --cflags`
+        gcrypt_libs=`libgcrypt-config --libs`
+        libs_softmmu="$gcrypt_libs $libs_softmmu"
+        libs_tools="$gcrypt_libs $libs_tools"
+        QEMU_CFLAGS="$QEMU_CFLAGS $gcrypt_cflags"
+        gcrypt="yes"
+    else
+        feature_not_found "gcrypt" "Install gcrypt devel"
+    fi
+fi
 
 ##########################################
 # VTE probe
@@ -4507,6 +4527,7 @@ echo "GNUTLS support    $gnutls"
 echo "GNUTLS hash       $gnutls_hash"
 echo "GNUTLS gcrypt     $gnutls_gcrypt"
 echo "GNUTLS nettle     $gnutls_nettle ${gnutls_nettle+($nettle_version)}"
+echo "gcrypt            $gcrypt"
 echo "VTE support       $vte"
 echo "curses support    $curses"
 echo "curl support      $curl"
@@ -4875,6 +4896,9 @@ fi
 if test "$gnutls_nettle" = "yes" ; then
   echo "CONFIG_GNUTLS_NETTLE=y" >> $config_host_mak
   echo "CONFIG_NETTLE_VERSION_MAJOR=${nettle_version%%.*}" >> $config_host_mak
+fi
+if test "$gcrypt" = "yes" ; then
+  echo "CONFIG_GCRYPT=y" >> $config_host_mak
 fi
 if test "$vte" = "yes" ; then
   echo "CONFIG_VTE=y" >> $config_host_mak

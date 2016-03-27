@@ -69,9 +69,6 @@ static const MemoryRegionOps ctr9_pic_ops =
 static void ctr9_pic_set_irq(void *opaque, int irq, int level)
 {
 	ctr9_pic_state *s = opaque;
-	
-	if(((1 << irq) & s->enabled) == 0)
-		return;
 
 	if(level)
 		s->pending |= 1 << irq;

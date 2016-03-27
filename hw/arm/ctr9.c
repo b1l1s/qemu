@@ -9,6 +9,10 @@
 #include "qemu/error-report.h"
 #include <stdio.h>
 
+#ifdef CONFIG_GCRYPT
+#include <gcrypt.h>
+#endif
+
 #define IRQ_ID_DMAC_1_0			0
 #define IRQ_ID_DMAC_1_1			1
 #define IRQ_ID_DMAC_1_2			2
@@ -87,6 +91,20 @@ static const MemoryRegionOps ctr9_fake11_ops =
 	.endianness = DEVICE_NATIVE_ENDIAN,
 };
 
+static void ctr9_crypto_init(void)
+{
+#ifdef CONFIG_GCRYPT
+	if(!gcry_check_version(GCRYPT_VERSION))
+	{
+		printf("libgcrypt version mismatch\n");
+		exit(2);
+	}
+
+	gcry_control(GCRYCTL_DISABLE_SECMEM, 0);
+	gcry_control(GCRYCTL_INITIALIZATION_FINISHED, 0);
+#endif
+}
+
 static void ctr9_init(MachineState *machine)
 {
 	Error *err = NULL;
@@ -120,6 +138,8 @@ static void ctr9_init(MachineState *machine)
 		error_report_err(err);
 		exit(1);
 	}
+	
+	ctr9_crypto_init();
 
 	ARMCPU* cpu = ARM_CPU(cpuobj);
 

@@ -3,6 +3,10 @@
 #include "hw/devices.h"
 #include "ctr9_common.h"
 
+#ifdef CONFIG_GCRYPT
+#include <gcrypt.h>
+#endif
+
 #define TYPE_CTR9_RSA "ctr9-rsa"
 #define CTR9_RSA(obj) \
     OBJECT_CHECK(ctr9_rsa_state, (obj), TYPE_CTR9_RSA)
@@ -57,6 +61,61 @@ typedef struct ctr9_rsa_state {
 	ctr9_iofifo exp_fifo;
 } ctr9_rsa_state;
 
+static void mpi_print(gcry_mpi_t a)
+{
+	uint8_t p_buf[0x200];
+	size_t written; int index;
+	gcry_mpi_print(GCRYMPI_FMT_USG, (unsigned char*)p_buf , sizeof(p_buf), &written, a);
+
+	for(index = 0; index < written; index++)
+		printf("%02X", (unsigned char) p_buf[index]);
+	printf("\n");
+}
+
+static void print_be(const uint8_t* src, int size)
+{
+	int i;
+	for(i = 0; i < size; ++i)
+		printf("%02X", src[i]);
+	printf("\n");
+}
+
+static void ctr9_rsa_op(ctr9_rsa_state* s)
+{
+#ifdef CONFIG_GCRYPT
+	ctr9_rsa_keyslot* k = &s->keyslots[s->keyslot];
+	gcry_mpi_t mod = 0, exp = 0, plain = 0;
+
+	size_t size = k->slot_size * 4;
+	gcry_mpi_scan(&mod, GCRYMPI_FMT_USG, k->mod + (0x100 - size), size, 0);
+	gcry_mpi_scan(&exp, GCRYMPI_FMT_USG, k->exp + (0x100 - size), size, 0);
+	gcry_mpi_scan(&plain, GCRYMPI_FMT_USG, s->text + (0x100 - size), size, 0);
+	
+	if(!gcry_mpi_get_nbits(mod) || !gcry_mpi_get_nbits(exp) || !gcry_mpi_get_nbits(plain))
+	{
+		printf("Invalid values\n");
+		return;
+	}
+
+	// Raw RSA operation
+	gcry_mpi_t cipher = gcry_mpi_new(size * 8);
+	gcry_mpi_powm(cipher, plain, exp, mod);
+	
+	// gcry_mpi_print removes leading zeroes, so we pad manually
+	uint32_t pad = (size * 8 - gcry_mpi_get_nbits(cipher)) / 8;
+	memset(s->text + (0x100 - size), 0, pad);
+	
+	// Print the result to our buffer
+	gcry_mpi_print(GCRYMPI_FMT_USG, s->text + (0x100 - size) + pad, size, NULL, cipher);
+	
+	
+	gcry_mpi_release(mod);
+	gcry_mpi_release(exp);
+	gcry_mpi_release(plain);
+	gcry_mpi_release(cipher);
+#endif
+}
+
 static uint64_t ctr9_rsa_read(void* opaque, hwaddr offset, unsigned size)
 {
 	ctr9_rsa_state* s = (ctr9_rsa_state*)opaque;
@@ -88,21 +147,15 @@ static uint64_t ctr9_rsa_read(void* opaque, hwaddr offset, unsigned size)
 		default:
 			break;
 		}
-		
-		//if(keyslot_offset == RSA_SLOTSIZE)
-		//	cpu_single_step(qemu_get_cpu(0), SSTEP_ENABLE | SSTEP_NOIRQ | SSTEP_NOTIMER);
-	}
-	else if(offset >= RSA_EXPFIFO && offset < (RSA_EXPFIFO + 4))
-	{
-		// exp_fifo
-	}
-	else if(offset >= RSA_MOD && offset < (RSA_MOD + 0x100))
-	{
-		
 	}
 	else if(offset >= RSA_TXT && offset < (RSA_TXT + 0x100))
 	{
-		
+		if(size == 1)
+			res = s->text[offset - RSA_TXT];
+		else if(size == 2)
+			res = *(uint16_t*)&s->text[offset - RSA_TXT];
+		else if(size == 4)
+			res = *(uint32_t*)&s->text[offset - RSA_TXT];
 	}
 	
 	printf("ctr9_rsa_read  0x%03X %X %08X\n", (uint32_t)offset, size, res);
@@ -132,6 +185,8 @@ static void ctr9_rsa_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 			printf(" endian : %d\n", s->endian);
 			printf(" order : %d\n", s->order);
 			
+			ctr9_rsa_op(s);
+			
 			if(s->irq_enable)
 				qemu_irq_raise(s->irq);
 			
@@ -153,6 +208,9 @@ static void ctr9_rsa_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 		case RSA_SLOTCNT:
 			k->set = value & 1;
 			k->key_wr_protect = (value >> 1) & 1;
+			
+			if(!k->set)
+				ctr9_fifo_reset(&s->exp_fifo);
 			break;
 		case RSA_SLOTSIZE:
 			k->slot_size = value;
@@ -164,15 +222,35 @@ static void ctr9_rsa_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 	else if(offset >= RSA_EXPFIFO && offset < (RSA_EXPFIFO + 4))
 	{
 		ctr9_fifo_push(&s->exp_fifo, value, size);
-		s->keyslots[s->keyslot].slot_size = ctr9_fifo_len(&s->exp_fifo) / 4;
+		
+		ctr9_rsa_keyslot* k = &s->keyslots[s->keyslot];
+		size_t len = ctr9_fifo_len(&s->exp_fifo);
+		k->slot_size = len / 4;
+		
+		if(len == 0x80 || len == 0x100)
+		{
+			memcpy(k->exp + (0x100 - len), s->exp_fifo.buffer, len);
+			k->set = true;
+		}
 	}
 	else if(offset >= RSA_MOD && offset < (RSA_MOD + 0x100))
 	{
-		
+		ctr9_rsa_keyslot* k = &s->keyslots[s->keyslot];
+		if(size == 1)
+			k->mod[offset - RSA_MOD] = value;
+		else if(size == 2)
+			*(uint16_t*)&k->mod[offset - RSA_MOD] = value;
+		else if(size == 4)
+			*(uint32_t*)&k->mod[offset - RSA_MOD] = value;
 	}
 	else if(offset >= RSA_TXT && offset < (RSA_TXT + 0x100))
 	{
-		
+		if(size == 1)
+			s->text[offset - RSA_TXT] = value;
+		else if(size == 2)
+			*(uint16_t*)&s->text[offset - RSA_TXT] = value;
+		else if(size == 4)
+			*(uint32_t*)&s->text[offset - RSA_TXT] = value;
 	}
 }
 

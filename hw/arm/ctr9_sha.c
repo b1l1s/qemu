@@ -3,16 +3,19 @@
 #include "hw/devices.h"
 #include "ctr9_common.h"
 
-#ifdef CONFIG_GNUTLS_HASH
-#include <gnutls/gnutls.h>
-#include <gnutls/crypto.h>
+#ifdef CONFIG_GCRYPT
+#include <gcrypt.h>
 
-static const uint32_t sha_mode_map[] = {GNUTLS_DIG_SHA256, GNUTLS_DIG_SHA224, GNUTLS_DIG_SHA1};
+static const uint32_t sha_mode_map[] = {GCRY_MD_SHA256, GCRY_MD_SHA224, GCRY_MD_SHA1};
 #else
-typedef void* gnutls_hash_hd_t;
-int gnutls_hash_init(gnutls_hash_hd_t* dig, uint32_t alg) {return 0;}
-int gnutls_hash(gnutls_hash_hd_t handle, const void *text, size_t textlen) {return 0;}
-void gnutls_hash_deinit(gnutls_hash_hd_t handle, void *digest) {}
+typedef struct gcry_md_handle
+{
+} *gcry_md_hd_t;
+
+void gcry_md_open (gcry_md_hd_t *h, int algo, unsigned int flags){}
+void gcry_md_close (gcry_md_hd_t hd){}
+void gcry_md_write (gcry_md_hd_t hd, const void *buffer, size_t length){}
+unsigned char *gcry_md_read (gcry_md_hd_t hd, int algo){}
 
 static const uint32_t sha_mode_map[] = {0, 0, 0};
 #endif
@@ -21,24 +24,23 @@ static const uint32_t sha_mode_map[] = {0, 0, 0};
 #define CTR9_SHA(obj) \
     OBJECT_CHECK(ctr9_sha_state, (obj), TYPE_CTR9_SHA)
 
-
-
 typedef struct ctr9_sha_state {
 	SysBusDevice parent_obj;
 
 	MemoryRegion iomem;
 	
-	uint8_t start;
-	uint8_t final;
-	uint8_t output_endian;
+	bool start;
+	bool final;
+	bool output_endian;
 	uint8_t mode;
+	uint8_t active_mode;
 	
 	uint32_t block_count;
 	
 	uint8_t hash[0x20];
 	
 	ctr9_iofifo in_fifo;
-	gnutls_hash_hd_t dig;
+	gcry_md_hd_t hd;
 } ctr9_sha_state;
 
 static uint64_t ctr9_sha_read(void* opaque, hwaddr offset, unsigned size)
@@ -90,8 +92,10 @@ static void ctr9_sha_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 		if(s->start)
 		{
 			ctr9_fifo_reset(&s->in_fifo);
+			
+			s->active_mode = s->mode;
 
-			gnutls_hash_init(&s->dig, sha_mode_map[s->mode]);
+			gcry_md_open(&s->hd, sha_mode_map[s->active_mode], 0);
 			s->start = 0;
 			s->block_count = 0;
 		}
@@ -107,11 +111,15 @@ static void ctr9_sha_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 			{
 				s->block_count += fifo_len;
 				// We have some leftover data
-				gnutls_hash(s->dig, s->in_fifo.buffer, fifo_len);
+				gcry_md_write(s->hd, s->in_fifo.buffer, fifo_len);
 				ctr9_fifo_reset(&s->in_fifo);
 			}
 			
-			gnutls_hash_deinit(s->dig, s->hash);
+			// Read the hash
+			uint8_t* hash = gcry_md_read(s->hd, sha_mode_map[s->active_mode]);
+			memcpy(s->hash, hash, gcry_md_get_algo_dlen(sha_mode_map[s->active_mode]));
+			gcry_md_close(s->hd);
+			
 			s->final = 0;
 		}
 		break;
@@ -126,7 +134,7 @@ static void ctr9_sha_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 		{
 			s->block_count += 128;
 
-			gnutls_hash(s->dig, s->in_fifo.buffer, 128);
+			gcry_md_write(s->hd, s->in_fifo.buffer, 128);
 			ctr9_fifo_reset(&s->in_fifo);
 		}
 	}

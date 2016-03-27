@@ -3,19 +3,38 @@
 #include "hw/devices.h"
 #include "ctr9_common.h"
 
+#ifdef CONFIG_GCRYPT
+#include <gcrypt.h>
+
+static const uint32_t aes_mode_map[] = {GCRY_CIPHER_MODE_CCM, GCRY_CIPHER_MODE_CTR, GCRY_CIPHER_MODE_CBC, GCRY_CIPHER_MODE_ECB};
+#endif
+
 #define TYPE_CTR9_AES "ctr9-aes"
 #define CTR9_AES(obj) \
     OBJECT_CHECK(ctr9_aes_state, (obj), TYPE_CTR9_AES)
 
-#define AES_CCM_DECRYPT_MODE	(0u << 27)
-#define AES_CCM_ENCRYPT_MODE	(1u << 27)
-#define AES_CTR_MODE			(2u << 27)
-#define AES_CTR_MODE			(2u << 27)
-#define AES_CBC_DECRYPT_MODE	(4u << 27)
-#define AES_CBC_ENCRYPT_MODE	(5u << 27)
-#define AES_ECB_DECRYPT_MODE	(6u << 27)
-#define AES_ECB_ENCRYPT_MODE	(7u << 27)
-#define AES_ALL_MODES			(7u << 27)
+#define AES_CNT					0x000
+#define AES_BLKCOUNT			0x004
+#define AES_WRFIFO				0x008
+#define AES_RDFIFO				0x00C
+#define AES_KEYSEL				0x010
+#define AES_KEYCNT				0x011
+#define AES_CTR					0x020
+#define AES_MAC					0x030
+#define AES_TWLKEYS				0x040
+#define AES_KEYFIFO				0x100
+#define AES_KEYXFIFO			0x104
+#define AES_KEYYFIFO			0x108
+
+#define AES_CCM_DECRYPT_MODE	(0u)
+#define AES_CCM_ENCRYPT_MODE	(1u)
+#define AES_CTR_MODE			(2u)
+#define AES_CTR_MODE			(2u)
+#define AES_CBC_DECRYPT_MODE	(4u)
+#define AES_CBC_ENCRYPT_MODE	(5u)
+#define AES_ECB_DECRYPT_MODE	(6u)
+#define AES_ECB_ENCRYPT_MODE	(7u)
+#define AES_ALL_MODES			(7u)
 
 #define AES_CNT_START			0x80000000
 #define AES_CNT_INPUT_ORDER		0x02000000
@@ -35,9 +54,13 @@
 #define AES_OUTPUT_NORMAL		(AES_CNT_OUTPUT_ORDER)
 #define AES_OUTPUT_REVERSED		0
 
+#define AES_KEYN				0
+#define AES_KEYX				1
+#define AES_KEYY				2
+
 typedef struct ctr9_aes_keyslot
 {
-	uint8_t keys[0x3][0x10];
+	uint8_t keys[0x3][0x10]; // little endian, reverse order
 } ctr9_aes_keyslot;
 
 typedef struct ctr9_aes_keyfifo
@@ -55,16 +78,16 @@ typedef struct ctr9_aes_state {
 
 	ctr9_aes_keyslot keyslots[0x40];
 	
-	uint8_t output_endian;
-	uint8_t input_endian;
-	uint8_t output_order;
-	uint8_t input_order;
+	bool output_endian;
+	bool input_endian;
+	bool output_order;
+	bool input_order;
 	
 	uint8_t unk;
 	
 	uint8_t mode;
-	uint8_t irq_enable;
-	uint8_t start;
+	bool irq_enable;
+	bool start;
 	
 	uint32_t block_count;
 	
@@ -72,15 +95,16 @@ typedef struct ctr9_aes_state {
 	ctr9_iofifo rd_fifo;
 	
 	uint8_t keysel;
-	uint8_t active_key[0x10];
+	uint8_t active_key[0x10]; // big endian, normal order
 	
 	uint8_t keycnt_key;
 	uint8_t scrambler_type;
 	uint8_t keyfifo_en;
 	
 	uint8_t ctr[0x10];
-	
 	ctr9_aes_keyfifo keyfifos[0x3];
+	
+	gcry_cipher_hd_t hd;
 } ctr9_aes_state;
 
 static void print_be(const uint8_t* src, int size)
@@ -98,7 +122,7 @@ static uint64_t ctr9_aes_read(void* opaque, hwaddr offset, unsigned size)
 	uint64_t res = 0;
 	switch(offset)
 	{
-	case 0x00: // AES_CNT
+	case AES_CNT:
 		res = (ctr9_fifo_len(&s->rd_fifo) / 4) << 5 | (ctr9_fifo_len(&s->wr_fifo) / 4);
 		res |= (s->input_order << 3 | s->output_order << 2 | s->input_endian << 1 | s->output_endian) << 22;
 		res |= s->unk << 12;
@@ -106,13 +130,13 @@ static uint64_t ctr9_aes_read(void* opaque, hwaddr offset, unsigned size)
 		res |= s->irq_enable << 30;
 		res |= s->start << 31;
 		break;
-	case 0x0C: // AES_RDFIFO
+	case AES_RDFIFO:
 		res = ctr9_fifo_pop(&s->rd_fifo);
 		break;
-	case 0x10: // AES_KEYSEL
+	case AES_KEYSEL:
 		res = s->keysel;
 		break;
-	case 0x11: // AES_KEYCNT
+	case AES_KEYCNT:
 		res = s->keycnt_key | (s->scrambler_type << 6) | (s->keyfifo_en << 7);
 		break;
 	default:
@@ -190,7 +214,7 @@ static void bswap_128(uint8_t* value)
 	v32[2] = __builtin_bswap32(temp);
 }
 
-static void ctr9_aes_keyfifo_scramble(ctr9_aes_state* s)
+static void ctr9_aes_keyfifo_scramble(ctr9_aes_state* s, uint32_t keyslot)
 {
 	// 3DS scrambler constant, little endian, reverse word order
 	uint8_t C_CTR[0x10] = {
@@ -208,72 +232,71 @@ static void ctr9_aes_keyfifo_scramble(ctr9_aes_state* s)
 		0x4E, 0xFB, 0xFE, 0xFF
 	};
 	
-	uint8_t* target_key = s->keyslots[s->keycnt_key].keys[0];
-	const uint8_t* keyx = s->keyslots[s->keycnt_key].keys[1];
-	const uint8_t* keyy = s->keyslots[s->keycnt_key].keys[2];
+	uint8_t* target_key = s->keyslots[keyslot].keys[AES_KEYN];
+	const uint8_t* keyx = s->keyslots[keyslot].keys[AES_KEYX];
+	const uint8_t* keyy = s->keyslots[keyslot].keys[AES_KEYY];
+	
+	printf("AES  *****\n");
+	printf(" scramble, slot : 0x%02X\n", keyslot);
+	printf(" endian, order %d %d %d %d\n", s->input_endian, s->input_order, s->output_endian, s->output_order);
+	printf(" keyx "); print_be(keyx, 0x10);
+	printf(" keyy "); print_be(keyy, 0x10);
 	
 	uint8_t key[0x10];
-	uint8_t tkeyy[0x10];
-
 	memcpy(key, keyx, 0x10);
-	memcpy(tkeyy, keyy, 0x10);
-	
-	bswap_128(key);
-	bswap_128(tkeyy);
-	if(s->keycnt_key < 4 || s->scrambler_type == 1)
+
+	if(keyslot < 4 || s->scrambler_type == 1)
 	{
-		xor_128(key, tkeyy);
+		xor_128(key, keyy);
 		add_128(key, C_TWL);
 		rol_128(key, 42);
 	}
 	else
 	{
 		rol_128(key, 2);
-		xor_128(key, tkeyy);
+		xor_128(key, keyy);
 		add_128(key, C_CTR);
 		ror_128(key, 41);
 	}
-	
-	bswap_128(key);
 
 	memcpy(target_key, key, 0x10);
+	printf(" keyn "); print_be(target_key, 0x10);
 }
 
-static void ctr9_aes_keyfifo_write(ctr9_aes_state* s, int key_type, uint32_t value, uint32_t size)
+static void ctr9_aes_keyfifo_write(ctr9_aes_state* s, int keytype, uint32_t value, uint32_t size)
 {
 	if(size == 0x1)
 		value |= value << 8 | value << 16 | value << 24;
-	if(size == 0x2)
+	else if(size == 0x2)
 		value |= value << 16;
 	
 	uint8_t* key_buffer, *key_buffer_ptr, *target_key;
 
-	key_buffer = s->keyfifos[key_type].key_buffer;
-	key_buffer_ptr = &s->keyfifos[key_type].key_buffer_ptr;
-	target_key = s->keyslots[s->keycnt_key].keys[key_type];
+	key_buffer = s->keyfifos[keytype].key_buffer;
+	key_buffer_ptr = &s->keyfifos[keytype].key_buffer_ptr;
+	target_key = s->keyslots[s->keycnt_key].keys[keytype];
 	
-	key_buffer[*key_buffer_ptr] = value;
+	*(uint32_t*)&key_buffer[*key_buffer_ptr] = s->input_endian ? __builtin_bswap32(value) : value;
 	*key_buffer_ptr += 4;
 	
 	if(*key_buffer_ptr == 0x10)
 	{
 		// Flush the key
-		if(s->input_endian == 0)
+		int i;
+		if(s->input_order)
 		{
-			// Little endian
-			int i;
 			for(i = 0; i < 4; ++i)
-				((uint32_t*)target_key)[i] = __builtin_bswap32(((uint32_t*)key_buffer)[i]);
+				((uint32_t*)target_key)[3 - i] = ((uint32_t*)key_buffer)[i];
 		}
 		else
 			memcpy(target_key, key_buffer, 0x10);
-		
+
 		printf("AES  *****\n");
-		printf(" keyset, slot : 0x%02X, type : %d\n", s->keycnt_key, key_type);
+		printf(" keyset, slot : 0x%02X, type : %d\n key : ", s->keycnt_key, keytype);
 		print_be(target_key, 0x10);
 		
-		if(key_type == 2)
-			ctr9_aes_keyfifo_scramble(s);
+		if(keytype == AES_KEYY)
+			ctr9_aes_keyfifo_scramble(s, s->keycnt_key);
 		
 		*key_buffer_ptr = 0;
 	}
@@ -301,6 +324,8 @@ static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 		{
 			// select keyslot
 			memcpy(s->active_key, s->keyslots[s->keysel].keys[0], 0x10);
+			bswap_128(s->active_key);
+
 			printf("AES  *****\n");
 			printf(" selected keyslot 0x%02X\n", s->keysel);
 		}
@@ -314,30 +339,61 @@ static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 			printf(" mode 0x%02X\n", s->mode);
 			printf(" irq_enable 0x%02X\n", s->irq_enable);
 			printf(" block_count 0x%08X\n", s->block_count);
-			printf(" CTR/IV ");
-			print_be(s->ctr, 0x10);
-			//s->start = 0;
+			printf(" key    "); print_be(s->active_key, 0x10);
+			printf(" CTR/IV "); print_be(s->ctr, 0x10);
+			printf(" keyslot 0x%02X\n", s->keysel);
+			
+			if(s->keysel < 4 || s->keysel == 0x11)
+			{
+				gcry_cipher_open(&s->hd, GCRY_CIPHER_AES128, aes_mode_map[s->mode / 2], 0);
+				gcry_cipher_setkey(s->hd, s->active_key, 0x10);
+				
+				uint8_t ctr[0x10];
+				memcpy(ctr, s->ctr, 0x10);
+				bswap_128(ctr);
+				if(s->mode == AES_CTR_MODE)
+					gcry_cipher_setctr(s->hd, ctr, 0x10);
+				else if(s->mode == AES_CBC_DECRYPT_MODE || s->mode == AES_CBC_ENCRYPT_MODE)
+					gcry_cipher_setiv(s->hd, ctr, 0x10);
+			}
+			
 			qemu_irq_raise(s->ndma_gpio[0]);
 		}
 		
 		break;
-	case 0x04: // AES_BLKCOUNT
+	case AES_BLKCOUNT:
 		s->block_count = value >> 16;
 		break;
-	case 0x06:
+	case AES_BLKCOUNT + 2:
 		s->block_count = value;
 		break;
-	case 0x08: // AES_WRFIFO
-		// TODO currently passthrough, we need a proper one
-		if(s->block_count)
+	case AES_WRFIFO:
+		if(s->start && s->block_count)
 		{
 			ctr9_fifo_push(&s->wr_fifo, value, 4);
 			if(ctr9_fifo_len(&s->wr_fifo) == 0x10)
 			{
 				int i;
-				for(i = 0; i < 4; ++i)
-					ctr9_fifo_push(&s->rd_fifo, ctr9_fifo_pop(&s->wr_fifo), 4);
+				if(s->keysel < 4 || s->keysel == 0x11)
+				{
+					uint32_t cipher[4];
+					if(s->mode % 2)
+						gcry_cipher_encrypt(s->hd, cipher, 0x10, s->wr_fifo.buffer, 0x10);
+					else
+						gcry_cipher_decrypt(s->hd, cipher, 0x10, s->wr_fifo.buffer, 0x10);
+
+					ctr9_fifo_reset(&s->wr_fifo);
+
+					for(i = 0; i < 4; ++i)
+						ctr9_fifo_push(&s->rd_fifo, cipher[i], 4);
+				}
+				else
+				{
+					for(i = 0; i < 4; ++i)
+						ctr9_fifo_push(&s->rd_fifo, ctr9_fifo_pop(&s->wr_fifo), 4);
+				}
 				
+				// trigger NDMA gpio
 				if((128 - ctr9_fifo_len(&s->rd_fifo)) >= 0x10)
 					qemu_irq_raise(s->ndma_gpio[1]); // RDFIFO has 4 words available
 				if((128 - ctr9_fifo_len(&s->wr_fifo)) >= 0x10)
@@ -346,7 +402,12 @@ static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 				s->block_count -= 1;
 				if(s->block_count == 0)
 				{
-					s->start = 0;
+					// Done processing everything
+					s->start = false;
+					ctr9_fifo_reset(&s->wr_fifo);
+					
+					if(s->keysel < 4 || s->keysel == 0x11)
+						gcry_cipher_close(s->hd);
 					
 					if(s->irq_enable)
 						qemu_irq_raise(s->irq);
@@ -355,32 +416,54 @@ static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 		}
 
 		break;
-	case 0x10: // AES_KEYSEL
+	case AES_KEYSEL:
 		s->keysel = value & 0x3F;
 		break;
-	case 0x11: // AES_KEYCNT
+	case AES_KEYCNT:
 		s->keycnt_key = value & 0x3F;
 		s->scrambler_type = (value >> 6) & 1;
 		s->keyfifo_en = (value >> 7) & 1;
 		break;
-	case 0x20: // AES_CTR
-	case 0x24:
-	case 0x28:
-	case 0x2C:
+	case AES_CTR + 0x0:
+	case AES_CTR + 0x4:
+	case AES_CTR + 0x8:
+	case AES_CTR + 0xC:
 		if(size == 4)
-			*(uint32_t*)&s->ctr[offset - 0x20] = value;
+			*(uint32_t*)&s->ctr[offset - AES_CTR] = s->input_endian ? __builtin_bswap32(value) : value;
 		break;
-	case 0x100 ... 0x103: // AES_KEYFIFO
-		ctr9_aes_keyfifo_write(s, 0, value, size);
+	case AES_KEYFIFO ... (AES_KEYFIFO + 3):
+		ctr9_aes_keyfifo_write(s, AES_KEYN, value, size);
 		break;
-	case 0x104 ... 0x107: // AES_KEYXFIFO
-		ctr9_aes_keyfifo_write(s, 1, value, size);
+	case AES_KEYXFIFO ... (AES_KEYXFIFO + 3):
+		ctr9_aes_keyfifo_write(s, AES_KEYX, value, size);
 		break;
-	case 0x108 ... 0x10B: // AES_KEYYFIFO
-		ctr9_aes_keyfifo_write(s, 2, value, size);
+	case AES_KEYYFIFO ... (AES_KEYYFIFO + 3):
+		ctr9_aes_keyfifo_write(s, AES_KEYY, value, size);
 		break;
 	default:
 		break;
+	}
+	
+	if(offset >= AES_TWLKEYS && offset < (AES_TWLKEYS + 0x10 * 3 * 4))
+	{
+		uint32_t keyslot = (offset - AES_TWLKEYS) / (0x10 * 3);
+		uint32_t keytype = ((offset - AES_TWLKEYS) / 0x10) % 3;
+		uint32_t keyoff = offset % 0x10;
+		
+		printf("ctr9_aes_write 0x%03X %X %08X\n", (uint32_t)offset, size, (uint32_t)value);
+		printf("%02X %02X %02X\n", keyslot, keytype, keyoff);
+		
+		uint8_t* t = &s->keyslots[keyslot].keys[keytype][keyoff];
+
+		if(size == 1)
+			*t = value;
+		else if(size == 2)
+			*(uint16_t*)t = value;
+		else if(size == 4)
+			*(uint32_t*)t = s->input_endian ? __builtin_bswap32(value) : value;
+		
+		if(keytype == AES_KEYY && keyoff >= 0xC) // Last word/byte to keyy changed, update normal key
+			ctr9_aes_keyfifo_scramble(s, keyslot);
 	}
 }
 

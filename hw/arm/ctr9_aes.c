@@ -302,6 +302,18 @@ static void ctr9_aes_keyfifo_write(ctr9_aes_state* s, int keytype, uint32_t valu
 	}
 }
 
+static void ctr9_aes_reverse_order(void* in)
+{
+	uint32_t* in32 = (uint32_t*)in;
+	uint32_t temp = in32[0];
+	in32[0] = in32[3];
+	in32[3] = temp;
+
+	temp = in32[1];
+	in32[1] = in32[2];
+	in32[2] = temp;
+}
+
 static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned size)
 {
 	ctr9_aes_state* s = (ctr9_aes_state*)opaque;
@@ -370,27 +382,39 @@ static void ctr9_aes_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 	case AES_WRFIFO:
 		if(s->start && s->block_count)
 		{
-			ctr9_fifo_push(&s->wr_fifo, value, 4);
+			ctr9_fifo_push(&s->wr_fifo, s->input_endian ? value : __builtin_bswap32(value), 4); // data fifo is big endian by default
 			if(ctr9_fifo_len(&s->wr_fifo) == 0x10)
 			{
 				int i;
 				if(s->keysel < 4 || s->keysel == 0x11)
 				{
+					if(!s->input_order)
+						ctr9_aes_reverse_order(s->wr_fifo.buffer);
+
 					uint32_t cipher[4];
 					if(s->mode % 2)
 						gcry_cipher_encrypt(s->hd, cipher, 0x10, s->wr_fifo.buffer, 0x10);
 					else
 						gcry_cipher_decrypt(s->hd, cipher, 0x10, s->wr_fifo.buffer, 0x10);
+					
+					if(!s->output_order)
+						ctr9_aes_reverse_order(cipher);
 
 					ctr9_fifo_reset(&s->wr_fifo);
 
 					for(i = 0; i < 4; ++i)
-						ctr9_fifo_push(&s->rd_fifo, cipher[i], 4);
+						ctr9_fifo_push(&s->rd_fifo, s->output_endian ? cipher[i] : __builtin_bswap32(cipher[i]), 4);
 				}
 				else
 				{
+					// Passthrough
 					for(i = 0; i < 4; ++i)
-						ctr9_fifo_push(&s->rd_fifo, ctr9_fifo_pop(&s->wr_fifo), 4);
+					{
+						uint32_t res = ctr9_fifo_pop(&s->wr_fifo);
+						res = s->output_endian ? res : __builtin_bswap32(res);
+						
+						ctr9_fifo_push(&s->rd_fifo, res, 4);
+					}
 				}
 				
 				// trigger NDMA gpio

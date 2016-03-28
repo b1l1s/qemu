@@ -38,6 +38,8 @@ typedef struct ctr9_pxi_state {
 	
 	ctr9_iofifo recv_fifo;
 	ctr9_iofifo send_fifo;
+	
+	uint32_t state;
 } ctr9_pxi_state;
 
 static uint64_t ctr9_pxi_read(void* opaque, hwaddr offset, unsigned size)
@@ -61,6 +63,20 @@ static uint64_t ctr9_pxi_read(void* opaque, hwaddr offset, unsigned size)
 		res |= (s->send_fifo_empty_irq_enable << 2) | (s->recv_fifo_notempty_irq_enable << 10);
 		res |= ((ctr9_fifo_len(&s->recv_fifo) == 0) | (s->recv_fifo.full << 1)) << 8;
 		res |= (s->error << 14) | (s->fifo_enable << 15);
+		
+		if(s->state == 0 && s->send_fifo.full)
+		{
+			s->state = 1;
+			ctr9_fifo_reset(&s->send_fifo);
+			qemu_irq_raise(s->irq[1]);
+			
+			ctr9_fifo_push(&s->recv_fifo, 0, 4);
+			ctr9_fifo_push(&s->recv_fifo, 0, 4);
+			ctr9_fifo_push(&s->recv_fifo, 0, 4);
+			
+			s->recv_count = ctr9_fifo_len(&s->recv_fifo) / 4;
+			qemu_irq_raise(s->irq[2]);
+		}
 		break;
 	case PXI_RECV:
 		res = ctr9_fifo_pop(&s->recv_fifo);
@@ -101,7 +117,7 @@ static void ctr9_pxi_write(void *opaque, hwaddr offset, uint64_t value, unsigned
 		if((value >> 3) & 1)
 		{
 			// flush send fifo
-			ctr9_fifo_reset(&s->recv_fifo);
+			ctr9_fifo_reset(&s->send_fifo);
 		}
 		break;
 	case PXI_SEND:

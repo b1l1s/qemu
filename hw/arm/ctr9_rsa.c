@@ -61,6 +61,7 @@ typedef struct ctr9_rsa_state {
 	ctr9_iofifo exp_fifo;
 } ctr9_rsa_state;
 
+__attribute__((unused))
 static void mpi_print(gcry_mpi_t a)
 {
 	uint8_t p_buf[0x200];
@@ -72,6 +73,7 @@ static void mpi_print(gcry_mpi_t a)
 	printf("\n");
 }
 
+__attribute__((unused))
 static void print_be(const uint8_t* src, int size)
 {
 	int i;
@@ -158,7 +160,7 @@ static uint64_t ctr9_rsa_read(void* opaque, hwaddr offset, unsigned size)
 			res = *(uint32_t*)&s->text[offset - RSA_TXT];
 	}
 	
-	printf("ctr9_rsa_read  0x%03X %X %08X\n", (uint32_t)offset, size, res);
+	printf("ctr9_rsa_read  0x%03X %X %08X\n", (uint32_t)offset, size, (uint32_t)res);
 	
 	return res;
 }

@@ -119,6 +119,9 @@ static void ctr9_ndma_trigger(ctr9_ndma_state* s, ctr9_ndma_channel_state* c)
 		
 		c->src_addr += i * c->block_size * src_stride;
 		c->dst_addr += i * c->block_size * dst_stride;
+		
+		if(c->irq_enable)
+			qemu_irq_raise(c->irq);
 	}
 }
 
@@ -253,7 +256,7 @@ static uint64_t ctr9_ndma_read(void* opaque, hwaddr offset, unsigned size)
 			break;
 		}
 	}
-	printf("ctr9_ndma_read  0x%03X %X %08X\n", (uint32_t)offset, size, res);
+	printf("ctr9_ndma_read  0x%03X %X %08X\n", (uint32_t)offset, size, (uint32_t)res);
 	
 	return res;
 }
@@ -262,6 +265,11 @@ static void ctr9_ndma_write(void *opaque, hwaddr offset, uint64_t value, unsigne
 {
 	ctr9_ndma_state* s = (ctr9_ndma_state*)opaque;
 	printf("ctr9_ndma_write 0x%03X %X %08X\n", (uint32_t)offset, size, (uint32_t)value);
+	
+	if(value == 0x89044000 && offset == 0x0C4)
+	{
+	//	cpu_single_step(qemu_get_cpu(0), SSTEP_ENABLE | SSTEP_NOIRQ | SSTEP_NOTIMER);
+	}
 	
 	if(offset < 4)
 	{

@@ -190,9 +190,10 @@ static void ctr9_init(MachineState *machine)
 		fseek(fitcm, 0, SEEK_SET);
 		
 		uint8_t* buffer = (uint8_t*) malloc(size);
-		fread(buffer, size, 1, fitcm);
-		
-		cpu_physical_memory_write(0x01FF8000, buffer, size);
+		if(fread(buffer, size, 1, fitcm) == 1)
+		{
+			cpu_physical_memory_write(0x01FF8000, buffer, size);
+		}
 		
 		free(buffer);
 		fclose(fitcm);
@@ -211,9 +212,10 @@ static void ctr9_init(MachineState *machine)
 		fseek(bootrom9, 0, SEEK_SET);
 		
 		uint8_t* buffer = (uint8_t*) malloc(size);
-		fread(buffer, size, 1, bootrom9);
-		
-		cpu_physical_memory_write(0xFFFF0000, buffer, size);
+		if(fread(buffer, size, 1, bootrom9) == 1)
+		{
+			cpu_physical_memory_write(0xFFFF0000, buffer, size);
+		}
 		
 		free(buffer);
 		fclose(bootrom9);

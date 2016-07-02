@@ -35,11 +35,33 @@ arm-softmmu/qemu-system-arm -S -gdb tcp:127.0.0.1:1234,ipv4 -kernel "path/to/pay
 ```
 
 Optional support files:
- - 3ds-data/sd.bin - will be used as the fat16 image for the sdcard
- - 3ds-data/nand.bin - will be used as the fat16 image for the nand
+ - 3ds-data/sd.bin - will be used as the image for the sdcard
+ - 3ds-data/nand.bin - will be used as the image for the nand, CTRNAND partition of the image has to be manually decrypted beforehand if required
  - 3ds-data/sdmmc_info.bin - contains the csd and cid for the nand and sdcard
+
+   ```
+   struct {
+      uint8_t nand_csd[16];
+	  uint8_t nand_cid[16];
+	  uint8_t sd_csd[16];
+	  uint8_t sd_cid[16];
+   };
+   ```
  - 3ds-data/qemu_ctr_bootrom9.bin - file loaded to bootrom (for the interrupt redirection)
  - 3ds-data/itcm.bin - file loaded to itcm (for payloads that uses the data inside)
+
+Key mapping:
+
+| 3DS | PC |
+|-----|----|
+| A   | M  |
+| B   | N  |
+| X   | J  |
+| Y   | H  |
+| RT  | U  |
+| LT  | Y  |
+
+Dpad <-> arrow keys on the PC
 
 Credits
 ==============

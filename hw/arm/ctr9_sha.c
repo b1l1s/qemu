@@ -70,7 +70,7 @@ static uint64_t ctr9_sha_read(void* opaque, hwaddr offset, unsigned size)
 			res = *(uint32_t*)&s->hash[offset - 0x40];
 	}
 	
-	printf("ctr9_sha_read  0x%03X %X %08X\n", (uint32_t)offset, size, res);
+	printf("ctr9_sha_read  0x%03X %X %08X\n", (uint32_t)offset, size, (uint32_t)res);
 	
 	return res;
 }

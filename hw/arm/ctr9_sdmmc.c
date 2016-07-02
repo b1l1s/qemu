@@ -130,7 +130,8 @@ static void ctr9_sdmmc_fileread(ctr9_sdmmc_state* s)
 		if(card->file)
 		{
 			fseek(card->file, card->io_ptr, SEEK_SET);
-			fread(card->buffer, card->block_len, 1, card->file);
+			if(fread(card->buffer, card->block_len, 1, card->file) != 1)
+				printf("ctr9_sdmmc_fileread : read failed\n");
 		}
 		
 		printf("ctr9_sdmmc_fileread : %08X %08X\n", card->io_ptr, card->io_block_count);
@@ -163,7 +164,8 @@ static void ctr9_sdmmc_filewrite(ctr9_sdmmc_state* s)
 		if(card->file)
 		{
 			fseek(card->file, card->io_ptr, SEEK_SET);
-			fwrite(card->buffer, card->block_len, 1, card->file);
+			if(fwrite(card->buffer, card->block_len, 1, card->file) != 1)
+				printf("ctr9_sdmmc_filewrite : write failed\n");
 		}
 		
 		printf("ctr9_sdmmc_filewrite : %08X %08X\n", card->io_ptr, card->io_block_count);
@@ -386,7 +388,8 @@ static void ctr9_sdmmc_write(void *opaque, hwaddr offset, uint64_t value, unsign
 						FILE* file = fopen("3ds-data/extcsd.bin", "rb");
 						if(file)
 						{
-							fread(card->buffer, card->block_len, 1, file);
+							if(fread(card->buffer, card->block_len, 1, file) != 1)
+								printf("Invalid extcsd.bin\n");
 							fclose(file);
 						}
 						else
@@ -591,10 +594,14 @@ static int ctr9_sdmmc_init(SysBusDevice* sbd)
 	FILE* sdmmc_info = fopen("3ds-data/sdmmc_info.bin", "rb");
 	if(sdmmc_info)
 	{
-		fread(s->cards[1].csd, 0x10, 1, sdmmc_info);
-		fread(s->cards[1].cid, 0x10, 1, sdmmc_info);
-		fread(s->cards[0].csd, 0x10, 1, sdmmc_info);
-		fread(s->cards[0].cid, 0x10, 1, sdmmc_info);
+		if(
+			fread(s->cards[1].csd, 0x10, 1, sdmmc_info) != 1 ||
+			fread(s->cards[1].cid, 0x10, 1, sdmmc_info) != 1 ||
+			fread(s->cards[0].csd, 0x10, 1, sdmmc_info) != 1 ||
+			fread(s->cards[0].cid, 0x10, 1, sdmmc_info) != 1
+		)
+			printf("ctr9_sdmmc_init invalid 3ds-data/sdmmc_info.bin\n");
+		
 		fclose(sdmmc_info);
 	}
 	else

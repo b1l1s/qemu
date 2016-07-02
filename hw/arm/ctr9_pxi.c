@@ -85,7 +85,7 @@ static uint64_t ctr9_pxi_read(void* opaque, hwaddr offset, unsigned size)
 		break;
 	}
 	
-	printf("ctr9_pxi_read  0x%03X %X %08X\n", (uint32_t)offset, size, res);
+	printf("ctr9_pxi_read  0x%03X %X %08X\n", (uint32_t)offset, size, (uint32_t)res);
 	
 	return res;
 }

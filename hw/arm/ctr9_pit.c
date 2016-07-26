@@ -8,8 +8,7 @@
 #define CTR9_PIT(obj) \
     OBJECT_CHECK(ctr9_pit_state, (obj), TYPE_CTR9_PIT)
 
-//#define BASE_FREQ (67027964ll)
-#define BASE_FREQ (50000000ll)
+#define BASE_FREQ (67027964ll)
 
 static const uint32_t prescaler_table[] = 
 {
@@ -84,6 +83,7 @@ static uint64_t ctr9_pit_read(void* opaque, hwaddr offset, unsigned size)
 	
 	uint64_t res = 0;
 	int timer_id = offset >> 2;
+
 	ctr9_timer_state* t = &s->timers[timer_id];
 	if(((offset & 2) == 2) && size <= 2)
 	{
@@ -110,11 +110,20 @@ static void ctr9_pit_write_cnt(ctr9_timer_state* t, uint16_t value)
 	t->prescale = value & 3;
 	t->counter = (value >> 2) & 1;
 	t->irq_enable = (value >> 6) & 1;
+	
 	if((value >> 7) & 1)
 	{
 		t->start = 1;
-		ptimer_set_freq(t->ptimer, BASE_FREQ / prescaler_table[t->prescale]);
-		ptimer_run(t->ptimer, 0);
+		
+		if(t->counter)
+		{
+			ptimer_stop(t->ptimer);
+		}
+		else
+		{
+			ptimer_set_freq(t->ptimer, BASE_FREQ / prescaler_table[t->prescale]);
+			ptimer_run(t->ptimer, 0);
+		}
 	}
 	else
 	{

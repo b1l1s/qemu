@@ -178,9 +178,18 @@ static void ctr9_init(MachineState *machine)
 	vmstate_register_ram_global(itcm);
 	memory_region_add_subregion(sysmem, 0x00000000, itcm);
 	
-	MemoryRegion* itcm_alias = g_new(MemoryRegion, 1);
-	memory_region_init_alias(itcm_alias, NULL, "itcm.alias", itcm, 0, 0x8000);
-	memory_region_add_subregion(sysmem, 0x01FF8000, itcm_alias);
+	// itcm mirrors
+	MemoryRegion* itcm_alias0 = g_new(MemoryRegion, 1);
+	memory_region_init_alias(itcm_alias0, NULL, "itcm.alias.0x8000", itcm, 0, 0x8000);
+	memory_region_add_subregion(sysmem, 0x8000, itcm_alias0);
+	
+	MemoryRegion* itcm_alias1 = g_new(MemoryRegion, 1);
+	memory_region_init_alias(itcm_alias1, NULL, "itcm.alias.0x01FF8000", itcm, 0, 0x8000);
+	memory_region_add_subregion(sysmem, 0x01FF8000, itcm_alias1);
+	
+	MemoryRegion* itcm_alias2 = g_new(MemoryRegion, 1);
+	memory_region_init_alias(itcm_alias2, NULL, "itcm.alias.0x07FF8000", itcm, 0, 0x8000);
+	memory_region_add_subregion(sysmem, 0x07FF8000, itcm_alias2);
 	
 	FILE* fitcm = fopen("3ds-data/itcm.bin", "rb");
 	if(fitcm)

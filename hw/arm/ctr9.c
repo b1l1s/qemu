@@ -258,6 +258,7 @@ static void ctr9_init(MachineState *machine)
 	DeviceState* aes = sysbus_create_simple("ctr9-aes", 0x10009000, pic[IRQ_ID_AES]);
 	sysbus_create_simple("ctr9-sha", 0x1000A000, NULL);
 	sysbus_create_simple("ctr9-rsa", 0x1000B000, pic[IRQ_ID_RSA]);
+	sysbus_create_simple("ctr9-prng", 0x10011000, NULL);
 	
 	qdev_connect_gpio_out(aes, 0, qdev_get_gpio_in(ndma, 8));
 	qdev_connect_gpio_out(aes, 1, qdev_get_gpio_in(ndma, 9));

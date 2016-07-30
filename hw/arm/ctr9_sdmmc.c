@@ -134,7 +134,7 @@ static void ctr9_sdmmc_fileread(ctr9_sdmmc_state* s)
 				printf("ctr9_sdmmc_fileread : read failed\n");
 		}
 		
-		printf("ctr9_sdmmc_fileread : %08X %08X\n", card->io_ptr, card->io_block_count);
+		//printf("ctr9_sdmmc_fileread : %08X %08X\n", card->io_ptr, card->io_block_count);
 		
 		card->ptr = 0;
 		
@@ -168,7 +168,7 @@ static void ctr9_sdmmc_filewrite(ctr9_sdmmc_state* s)
 				printf("ctr9_sdmmc_filewrite : write failed\n");
 		}
 		
-		printf("ctr9_sdmmc_filewrite : %08X %08X\n", card->io_ptr, card->io_block_count);
+		//printf("ctr9_sdmmc_filewrite : %08X %08X\n", card->io_ptr, card->io_block_count);
 		
 		card->ptr = 0;
 		
@@ -327,8 +327,8 @@ static void ctr9_sdmmc_write(void *opaque, hwaddr offset, uint64_t value, unsign
 			s->prevcmd = value;
 			uint8_t cmd = (value & 0xFF);
 			card->status[0] = 0;
-			printf("%s%d : ", (cmd & 0x40) ? "ACMD" : "CMD", cmd & 0x3F);
-			printf("%08X\n", s->cmdarg0 | (s->cmdarg1 << 16));
+			//printf("%s%d : ", (cmd & 0x40) ? "ACMD" : "CMD", cmd & 0x3F);
+			//printf("%08X\n", s->cmdarg0 | (s->cmdarg1 << 16));
 			
 			switch(cmd)
 			{
@@ -507,7 +507,7 @@ static void ctr9_sdmmc_write(void *opaque, hwaddr offset, uint64_t value, unsign
 			s->selected = 0;
 		else
 			s->selected = 1;
-		printf("Selected : %s\n", s->selected ? "NAND" : "SD");
+		//printf("Selected : %s\n", s->selected ? "NAND" : "SD");
 		break;
 	case EMMC_STATUS0:
 		card->status[0] &= value;
